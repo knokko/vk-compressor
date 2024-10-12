@@ -1,12 +1,18 @@
 package com.github.knokko.compressor;
 
 import com.github.knokko.boiler.BoilerInstance;
+import com.github.knokko.boiler.buffers.VkbBuffer;
+import com.github.knokko.boiler.commands.CommandRecorder;
 import com.github.knokko.boiler.descriptors.GrowingDescriptorBank;
 import com.github.knokko.boiler.descriptors.VkbDescriptorSetLayout;
+import com.github.knokko.boiler.synchronization.ResourceUsage;
 import org.lwjgl.vulkan.VkDescriptorSetLayoutBinding;
 import org.lwjgl.vulkan.VkPushConstantRange;
 
+import static com.github.knokko.compressor.Bc1Worker.stb__OMatch5;
+import static com.github.knokko.compressor.Bc1Worker.stb__OMatch6;
 import static org.lwjgl.system.MemoryStack.stackPush;
+import static org.lwjgl.system.MemoryUtil.memByteBuffer;
 import static org.lwjgl.vulkan.VK10.*;
 
 public class Bc1Compressor {
@@ -16,6 +22,7 @@ public class Bc1Compressor {
 	public final GrowingDescriptorBank descriptorBank;
 	public final long pipelineLayout;
 	public final long pipeline;
+	final VkbBuffer matchBuffer;
 
 	public Bc1Compressor(BoilerInstance boiler) {
 		this.boiler = boiler;
@@ -41,10 +48,46 @@ public class Bc1Compressor {
 			);
 
 			this.descriptorBank = new GrowingDescriptorBank(descriptorSetLayout, 0);
+
+			var matchStagingBuffer = boiler.buffers.createMapped(
+					4096, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "Bc1CompressorMatchStaging"
+			);
+			this.matchBuffer = boiler.buffers.create(
+					4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+					"Bc1CompressorMatch"
+			);
+
+			var hostBuffer = memByteBuffer(matchStagingBuffer.hostAddress(), (int) matchBuffer.size());
+			for (byte[] bytes5 : stb__OMatch5) {
+				hostBuffer.putFloat(bytes5[0]).putFloat(bytes5[1]);
+			}
+			for (byte[] bytes6 : stb__OMatch6) {
+				hostBuffer.putFloat(bytes6[0]).putFloat(bytes6[1]);
+			}
+
+			var stagingPool = boiler.commands.createPool(0, boiler.queueFamilies().graphics().index(), "Bc1MatchStaging");
+			var stagingCommands = boiler.commands.createPrimaryBuffers(stagingPool, 1, "Bc1MatchStaging")[0];
+
+			var recorder = CommandRecorder.begin(stagingCommands, boiler, stack, "Bc1MatchStaging");
+			recorder.copyBuffer(matchStagingBuffer.fullRange(), matchBuffer.vkBuffer(), 0);
+			recorder.bufferBarrier(
+					matchBuffer.fullRange(), ResourceUsage.TRANSFER_DEST,
+					ResourceUsage.computeBuffer(VK_ACCESS_SHADER_READ_BIT)
+			);
+			recorder.end();
+
+			var fence = boiler.sync.fenceBank.borrowFence(false, "Bc1MatchFence");
+			boiler.queueFamilies().graphics().first().submit(stagingCommands, "Bc1Match", null, fence);
+			fence.awaitSignal();
+			boiler.sync.fenceBank.returnFence(fence);
+
+			vkDestroyCommandPool(boiler.vkDevice(), stagingPool, null);
+			matchStagingBuffer.destroy(boiler);
 		}
 	}
 
 	public void destroy(boolean checkDescriptorBorrows) {
+		matchBuffer.destroy(boiler);
 		vkDestroyPipeline(boiler.vkDevice(), pipeline, null);
 		descriptorBank.destroy(checkDescriptorBorrows);
 		descriptorSetLayout.destroy();

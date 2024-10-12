@@ -41,7 +41,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 				.build();
 
 		var compressor = new Bc1Compressor(boiler);
-		var worker = new Bc1Worker(compressor, "");
+		var worker = new Bc1Worker(compressor);
 		var compressorDescriptorSet = compressor.descriptorBank.borrowDescriptorSet("Bc1Image");
 
 		var bc1Image = boiler.images.createSimple(
@@ -55,7 +55,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 				VK_IMAGE_ASPECT_COLOR_BIT, "OriginalImage"
 		);
 		try (var stack = stackPush()) {
-			var sourceImage = ImageIO.read(ManualTesting.class.getResourceAsStream("flame_tongue.png"));
+			var sourceImage = ImageIO.read(ManualTesting.class.getResourceAsStream("mardek/Longsword.png"));
 			var sourceBuffer = boiler.buffers.createMapped(
 					4 * 16 * 16,
 					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,

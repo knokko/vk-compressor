@@ -85,28 +85,10 @@ public class Bc1Worker {
 	};
 
 	private final Bc1Compressor compressor;
-	private final MappedVkbBuffer scratchSourceBuffer;
-	private final VkbBuffer scratchBuffer;
 	private VkbBuffer transferBuffer;
 
-	Bc1Worker(Bc1Compressor compressor, String name) {
+	Bc1Worker(Bc1Compressor compressor) {
 		this.compressor = compressor;
-		this.scratchSourceBuffer = compressor.boiler.buffers.createMapped(
-				4096, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-				"Bc1CompressorScratchSource " + name
-		);
-		this.scratchBuffer = compressor.boiler.buffers.create(
-				4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-				"Bc1CompressorScratch " + name
-		);
-
-		var hostBuffer = memByteBuffer(scratchSourceBuffer.hostAddress(), (int) scratchSourceBuffer.size());
-		for (byte[] bytes5 : stb__OMatch5) {
-			hostBuffer.putFloat(bytes5[0]).putFloat(bytes5[1]);
-		}
-		for (byte[] bytes6 : stb__OMatch6) {
-			hostBuffer.putFloat(bytes6[0]).putFloat(bytes6[1]);
-		}
 	}
 
 	public void compress(CommandRecorder recorder, long descriptorSet, VkbBufferRange source, VkbImage destination) {
@@ -146,7 +128,7 @@ public class Bc1Worker {
 		var writes = VkWriteDescriptorSet.calloc(3, recorder.stack);
 		compressor.boiler.descriptors.writeBuffer(
 				recorder.stack, writes, descriptorSet, 0,
-				VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, scratchBuffer.fullRange()
+				VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, compressor.matchBuffer.fullRange()
 		);
 		compressor.boiler.descriptors.writeBuffer(
 				recorder.stack, writes, descriptorSet, 1,
@@ -157,13 +139,6 @@ public class Bc1Worker {
 				VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, destination
 		);
 		vkUpdateDescriptorSets(compressor.boiler.vkDevice(), writes, null);
-
-		ResourceUsage computeReadWrite = ResourceUsage.computeBuffer(
-				VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT
-		);
-		recorder.bufferBarrier(scratchBuffer.fullRange(), computeReadWrite, ResourceUsage.TRANSFER_DEST);
-		recorder.copyBuffer(scratchSourceBuffer.fullRange(), scratchBuffer.vkBuffer(), 0);
-		recorder.bufferBarrier(scratchBuffer.fullRange(), ResourceUsage.TRANSFER_DEST, computeReadWrite);
 
 		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compressor.pipeline);
 		recorder.bindComputeDescriptors(compressor.pipelineLayout, descriptorSet);
@@ -177,7 +152,5 @@ public class Bc1Worker {
 
 	public void destroy() {
 		if (transferBuffer != null) transferBuffer.destroy(compressor.boiler);
-		scratchBuffer.destroy(compressor.boiler);
-		scratchSourceBuffer.destroy(compressor.boiler);
 	}
 }

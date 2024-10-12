@@ -17,7 +17,7 @@ layout(push_constant) uniform Refinements {
 	uint width;
 };
 
-layout(std430, binding = 0) buffer GlobalBuffer
+layout(std430, binding = 0) readonly restrict buffer GlobalBuffer
 {
 	vec2 c_oMatch5[256];
 	vec2 c_oMatch6[256];
@@ -324,11 +324,11 @@ inout float inOutMaxEndp16 )
 		rgbVal = floor( rgbVal * ( 255.0f / 16.0f ) );
 
 		newMax16 = c_oMatch5[uint( rgbVal.r )][0] * 2048.0f +  //
-		c_oMatch6[uint( rgbVal.g )][0] * 32.0f +    //
-		c_oMatch5[uint( rgbVal.b )][0];
+				c_oMatch6[uint( rgbVal.g )][0] * 32.0f +    //
+				c_oMatch5[uint( rgbVal.b )][0];
 		newMin16 = c_oMatch5[uint( rgbVal.r )][1] * 2048.0f +  //
-		c_oMatch6[uint( rgbVal.g )][1] * 32.0f +    //
-		c_oMatch5[uint( rgbVal.b )][1];
+				c_oMatch6[uint( rgbVal.g )][1] * 32.0f +    //
+				c_oMatch5[uint( rgbVal.b )][1];
 	}
 	else
 	{
@@ -472,10 +472,8 @@ void main()
 	{
 		const uvec3 rgbVal = uvec3( unpackUnorm4x8( srcPixelsBlock[0] ).xyz * 255.0f );
 		mask = 0xAAAAAAAAu;
-		maxEndp16 =
-		c_oMatch5[rgbVal.r][0] * 2048.0f + c_oMatch6[rgbVal.g][0] * 32.0f + c_oMatch5[rgbVal.b][0];
-		minEndp16 =
-		c_oMatch5[rgbVal.r][1] * 2048.0f + c_oMatch6[rgbVal.g][1] * 32.0f + c_oMatch5[rgbVal.b][1];
+		maxEndp16 = c_oMatch5[rgbVal.r][0] * 2048.0f + c_oMatch6[rgbVal.g][0] * 32.0f + c_oMatch5[rgbVal.b][0];
+		minEndp16 = c_oMatch5[rgbVal.r][1] * 2048.0f + c_oMatch6[rgbVal.g][1] * 32.0f + c_oMatch5[rgbVal.b][1];
 	}
 	else
 	{
