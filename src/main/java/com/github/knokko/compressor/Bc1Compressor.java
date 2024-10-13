@@ -15,15 +15,32 @@ import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.system.MemoryUtil.memByteBuffer;
 import static org.lwjgl.vulkan.VK10.*;
 
+/**
+ * This is a modified version of the BC1 compressor from
+ * <a href="https://github.com/darksylinc/betsy/blob/master/bin/Data/bc1.glsl">the Betsy GPU compressor</a>.
+ * I (knokko) modified it to make it compatible with Vulkan. Furthermore, I altered the algorithm to
+ * use the implicit 1-bit alpha channel.
+ */
 public class Bc1Compressor {
 
 	final BoilerInstance boiler;
+	/**
+	 * All <i>descriptorSet</i>s passed to the <i>compress</i> methods of <i>Bc1Worker</i> should have this layout.
+	 */
 	public final VkbDescriptorSetLayout descriptorSetLayout;
+
+	/**
+	 * A <i>GrowingDescriptorBank</i> with <i>descriptorSetLayout</i>
+	 */
 	public final GrowingDescriptorBank descriptorBank;
 	final long pipelineLayout;
 	final long pipeline;
 	final VkbBuffer matchBuffer;
 
+	/**
+	 * Constructs a new <i>Bc1Compressor</i> using the given <i>BoilerInstance</i>. You should normally only need 1
+	 * <i>Bc1Compressor</i> instance.
+	 */
 	public Bc1Compressor(BoilerInstance boiler) {
 		this.boiler = boiler;
 		try (var stack = stackPush()) {
@@ -85,6 +102,11 @@ public class Bc1Compressor {
 		}
 	}
 
+	/**
+	 * Destroys this <i>Bc1Compressor</i>. You need to destroy all <i>Bc1Worker</i>s first.
+	 * @param checkDescriptorBorrows Whether an exception should be thrown if you didn't return all descriptor sets
+	 *                               borrowed from <i>descriptorBank</i>
+	 */
 	public void destroy(boolean checkDescriptorBorrows) {
 		matchBuffer.destroy(boiler);
 		vkDestroyPipeline(boiler.vkDevice(), pipeline, null);
