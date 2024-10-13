@@ -110,7 +110,99 @@ public class TestBc1Compression {
 	}
 
 	@Test
-	public void testRepeatedSubmissions() throws IOException {
+	public void testWith1SubmissionAnd1Worker() throws IOException {
+		var boiler = new BoilerBuilder(
+				VK_API_VERSION_1_2, "Bc1With1WorkerAnd1Submission", 1
+		)
+				.validation()
+				.forbidValidationErrors()
+				.build();
+
+		File[] files = new File("src/test/resources/com/github/knokko/compressor/mardek").listFiles();
+		assertNotNull(files);
+		BufferedImage[] sourceImages = new BufferedImage[files.length];
+		for (int index = 0; index < files.length; index++) {
+			sourceImages[index] = ImageIO.read(files[index]);
+		}
+
+		File destinationFolder = Files.createTempDirectory("").toFile();
+		destinationFolder.deleteOnExit();
+		assertTrue(destinationFolder.isDirectory() || destinationFolder.mkdirs());
+
+		var fence = boiler.sync.fenceBank.borrowFence(false, "Bc1Fence");
+		var commandPool = boiler.commands.createPool(0, boiler.queueFamilies().compute().index(), "CmdPool");
+		var commandBuffer = boiler.commands.createPrimaryBuffers(commandPool, 1, "CmdBuffer")[0];
+
+		var compressor = new Bc1Compressor(boiler);
+		var worker = new Bc1Worker(compressor);
+
+		var sourceBuffer = boiler.buffers.createMapped(200_000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "Source");
+		var destinationBuffer = boiler.buffers.createMapped(20_000, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "Source");
+
+		var descriptorPool = compressor.descriptorSetLayout.createPool(files.length, 0, "Bc1Descriptors");
+		var descriptorSets = descriptorPool.allocate(files.length);
+
+		try (var stack = stackPush()) {
+			long startRecordTime = System.nanoTime();
+			var recorder = CommandRecorder.begin(commandBuffer, boiler, stack, "Bc1Encode");
+
+			long sourceOffset = 0;
+			long destOffset = 0;
+			for (int index = 0; index < files.length; index++) {
+				var image = sourceImages[index];
+
+				boiler.buffers.encodeBufferedImageRGBA(sourceBuffer, image, sourceOffset);
+
+				long sourceSize = 4L * image.getWidth() * image.getHeight();
+				long destSize = (long) image.getWidth() * image.getHeight() / 2;
+				worker.compress(
+						recorder, descriptorSets[index], sourceBuffer.range(sourceOffset, sourceSize),
+						destinationBuffer.range(destOffset, destSize), image.getWidth(), image.getHeight()
+				);
+
+				sourceOffset += sourceSize;
+				destOffset += destSize;
+			}
+
+			recorder.end();
+
+			long submissionTime = System.nanoTime();
+			boiler.queueFamilies().graphics().first().submit(commandBuffer, "Bc1", null, fence);
+
+			// This ridiculously long timeout is needed on GitHub Actions for some reason
+			fence.waitAndReset(10_000_000_000L);
+			System.out.println("Recording compression took " + (submissionTime - startRecordTime) / 1_000_000 + " ms");
+			System.out.println("Compression took " + (System.nanoTime() - submissionTime) / 1_000 + " us");
+		}
+
+		long destinationOffset = 0;
+		for (int index = 0; index < files.length; index++) {
+			File destinationFile = new File(destinationFolder + "/" + files[index].getName());
+			var image = sourceImages[index];
+			int destinationSize = image.getWidth() * image.getHeight() / 2;
+			var outputBuffer = memByteBuffer(destinationBuffer.hostAddress() + destinationOffset, destinationSize);
+			var outputArray = new byte[outputBuffer.capacity()];
+			outputBuffer.get(outputArray);
+			ImageIO.write(crappyDecodeBc1(outputArray), "PNG", destinationFile);
+			destinationFile.deleteOnExit();
+
+			destinationOffset += destinationSize;
+		}
+
+		vkDestroyCommandPool(boiler.vkDevice(), commandPool, null);
+		boiler.sync.fenceBank.returnFence(fence);
+		worker.destroy();
+		descriptorPool.destroy();
+		compressor.destroy(true);
+		sourceBuffer.destroy(boiler);
+		destinationBuffer.destroy(boiler);
+		boiler.destroyInitialObjects();
+
+		checkResults(destinationFolder);
+	}
+
+	@Test
+	public void testWithManySubmissionsAnd1Worker() throws IOException {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "Bc1SequentialTest", 1
 		)
