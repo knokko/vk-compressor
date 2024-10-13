@@ -30,11 +30,6 @@ layout(std430, binding = 2) writeonly restrict buffer DestBuffer {
 	uint destBuffer[];
 };
 
-// TODO Maybe use local size more effectively
-layout( local_size_x = 1,  //
-local_size_y = 1,  //
-local_size_z = 1 ) in;
-
 vec3 rgb565to888( float rgb565 )
 {
 	vec3 retVal;
@@ -519,23 +514,14 @@ void main()
 		}
 	}
 
-	if (alphaMask == 0) {
-		if (maxEndp16 < minEndp16) {
-			mask ^= 0x55555555u;
-			const float tmpValue = minEndp16;
-			minEndp16 = maxEndp16;
-			maxEndp16 = tmpValue;
-		}
-	} else {
-		bool swapped = false;
-		if (maxEndp16 >= minEndp16) {
-			mask ^= 0x55555555u;
-			swapped = true;
-			const float tmpValue = minEndp16;
-			minEndp16 = maxEndp16;
-			maxEndp16 = tmpValue;
-		}
+	if ((alphaMask == 0) == (maxEndp16 < minEndp16)) {
+		mask ^= 0x55555555u;
+		const float tmpValue = minEndp16;
+		minEndp16 = maxEndp16;
+		maxEndp16 = tmpValue;
+	}
 
+	if (alphaMask != 0) {
 		for (uint i = 0; i < 16; i++) {
 			uint bitIndex = 2u * i;
 			if ((alphaMask & (1u << i)) != 0) {
@@ -549,14 +535,10 @@ void main()
 		}
 	}
 
-	uvec2 outputBytes;
-	outputBytes.x = uint( maxEndp16 ) | ( uint( minEndp16 ) << 16u );
-	outputBytes.y = mask;
-
 	uvec2 dstUV = gl_GlobalInvocationID.xy;
-	uint outputBlocksPerRow = width / 4; // TODO Ensure that width is divisable by 4
+	uint outputBlocksPerRow = width / 4;
 	uint outputBlockSize = 8 / 4; // 8 bytes per block and 1 uint is 4 bytes
 	uint outputIndex = outputBlockSize * (dstUV.x + outputBlocksPerRow * dstUV.y);
-	destBuffer[outputIndex] = outputBytes.x;
-	destBuffer[outputIndex + 1] = outputBytes.y;
+	destBuffer[outputIndex] = uint(maxEndp16) | (uint(minEndp16) << 16u);
+	destBuffer[outputIndex + 1] = mask;
 }

@@ -9,8 +9,8 @@ import com.github.knokko.boiler.synchronization.ResourceUsage;
 import org.lwjgl.vulkan.VkDescriptorSetLayoutBinding;
 import org.lwjgl.vulkan.VkPushConstantRange;
 
-import static com.github.knokko.compressor.Bc1Worker.stb__OMatch5;
-import static com.github.knokko.compressor.Bc1Worker.stb__OMatch6;
+import java.io.IOException;
+
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.system.MemoryUtil.memByteBuffer;
 import static org.lwjgl.vulkan.VK10.*;
@@ -58,12 +58,9 @@ public class Bc1Compressor {
 			);
 
 			var hostBuffer = memByteBuffer(matchStagingBuffer.hostAddress(), (int) matchBuffer.size());
-			for (byte[] bytes5 : stb__OMatch5) {
-				hostBuffer.putFloat(bytes5[0]).putFloat(bytes5[1]);
-			}
-			for (byte[] bytes6 : stb__OMatch6) {
-				hostBuffer.putFloat(bytes6[0]).putFloat(bytes6[1]);
-			}
+			var matchInput = Bc1Compressor.class.getResourceAsStream("match.bin");
+			hostBuffer.put(matchInput.readAllBytes());
+			matchInput.close();
 
 			var stagingPool = boiler.commands.createPool(0, boiler.queueFamilies().graphics().index(), "Bc1MatchStaging");
 			var stagingCommands = boiler.commands.createPrimaryBuffers(stagingPool, 1, "Bc1MatchStaging")[0];
@@ -83,6 +80,8 @@ public class Bc1Compressor {
 
 			vkDestroyCommandPool(boiler.vkDevice(), stagingPool, null);
 			matchStagingBuffer.destroy(boiler);
+		} catch (IOException e) {
+			throw new RuntimeException("Failed to read match.bin", e);
 		}
 	}
 
