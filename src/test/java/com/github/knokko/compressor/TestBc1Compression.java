@@ -24,11 +24,13 @@ public class TestBc1Compression {
 	private void checkResults(File actualFolder) throws IOException {
 		assertTrue(actualFolder.isDirectory());
 		File[] actualFiles = actualFolder.listFiles();
+		assertNotNull(actualFiles);
 
 		File expectedFolder = new File("expected mardek output");
 		assertTrue(expectedFolder.isDirectory());
 
 		File[] expectedFiles = expectedFolder.listFiles();
+		assertNotNull(expectedFiles);
 
 		assertEquals(expectedFiles.length, actualFiles.length);
 		for (File expected : expectedFiles) {
@@ -112,9 +114,8 @@ public class TestBc1Compression {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "Bc1SequentialTest", 1
 		)
-				// TODO Figure out why validation crashes on CI
-//				.validation()
-//				.forbidValidationErrors()
+				.validation()
+				.forbidValidationErrors()
 				.build();
 
 		var compressor = new Bc1Compressor(boiler);
@@ -125,6 +126,7 @@ public class TestBc1Compression {
 		var descriptorSet = compressor.descriptorBank.borrowDescriptorSet("Single");
 
 		File[] files = new File("src/test/resources/com/github/knokko/compressor/mardek").listFiles();
+		assertNotNull(files);
 		BufferedImage[] sourceImages = new BufferedImage[files.length];
 		for (int index = 0; index < files.length; index++) {
 			sourceImages[index] = ImageIO.read(files[index]);
@@ -155,7 +157,9 @@ public class TestBc1Compression {
 				recorder.end();
 
 				boiler.queueFamilies().graphics().first().submit(commandBuffer, "Bc1", null, fence);
-				fence.waitAndReset();
+
+				// This ridiculously long timeout is needed on GitHub Actions for some reason
+				fence.waitAndReset(10_000_000_000L);
 
 				File destinationFile = new File(destinationFolder + "/" + files[index].getName());
 				var outputBuffer = memByteBuffer(destinationBuffer.hostAddress(), image.getWidth() * image.getHeight() / 2);
