@@ -20,8 +20,8 @@ public class Bc1Compressor {
 	final BoilerInstance boiler;
 	public final VkbDescriptorSetLayout descriptorSetLayout;
 	public final GrowingDescriptorBank descriptorBank;
-	public final long pipelineLayout;
-	public final long pipeline;
+	final long pipelineLayout;
+	final long pipeline;
 	final VkbBuffer matchBuffer;
 
 	public Bc1Compressor(BoilerInstance boiler) {

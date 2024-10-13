@@ -29,7 +29,7 @@ import static org.lwjgl.vulkan.VK12.VK_API_VERSION_1_2;
 
 public class ManualTesting extends SimpleWindowRenderLoop {
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws IOException {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "HelloCompressor", 1
 		)
@@ -44,20 +44,20 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		var worker = new Bc1Worker(compressor);
 		var compressorDescriptorSet = compressor.descriptorBank.borrowDescriptorSet("Bc1Image");
 
+		var sourceImage = ImageIO.read(ManualTesting.class.getResourceAsStream("mardek/Flametongue.png"));
 		var bc1Image = boiler.images.createSimple(
-				16, 16, VK_FORMAT_BC1_RGBA_SRGB_BLOCK,
+				sourceImage.getWidth(), sourceImage.getHeight(), VK_FORMAT_BC1_RGBA_SRGB_BLOCK,
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				VK_IMAGE_ASPECT_COLOR_BIT, "Bc1Image"
 		);
 		var originalImage = boiler.images.createSimple(
-				16, 16, VK_FORMAT_R8G8B8A8_SRGB,
+				sourceImage.getWidth(), sourceImage.getHeight(), VK_FORMAT_R8G8B8A8_SRGB,
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 				VK_IMAGE_ASPECT_COLOR_BIT, "OriginalImage"
 		);
 		try (var stack = stackPush()) {
-			var sourceImage = ImageIO.read(ManualTesting.class.getResourceAsStream("mardek/Longsword.png"));
 			var sourceBuffer = boiler.buffers.createMapped(
-					4 * 16 * 16,
+					4L * sourceImage.getWidth() * sourceImage.getHeight(),
 					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 					"Bc1Source"
 			);
@@ -93,8 +93,6 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 			worker.destroy();
 			compressor.descriptorBank.returnDescriptorSet(compressorDescriptorSet);
 			compressor.destroy(true);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
 		}
 
 		var eventLoop = new WindowEventLoop();

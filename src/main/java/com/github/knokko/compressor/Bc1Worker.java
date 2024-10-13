@@ -14,7 +14,7 @@ public class Bc1Worker {
 	private final Bc1Compressor compressor;
 	private VkbBuffer transferBuffer;
 
-	Bc1Worker(Bc1Compressor compressor) {
+	public Bc1Worker(Bc1Compressor compressor) {
 		this.compressor = compressor;
 	}
 

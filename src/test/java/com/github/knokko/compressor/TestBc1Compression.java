@@ -42,8 +42,8 @@ public class TestBc1Compression {
 
 			assertEquals(expectedImage.getWidth(), actualImage.getWidth());
 			assertEquals(expectedImage.getHeight(), actualImage.getHeight());
-			for (int x = 0; x < 16; x++) {
-				for (int y = 0; y < 16; y++) {
+			for (int x = 0; x < expectedImage.getWidth(); x++) {
+				for (int y = 0; y < expectedImage.getHeight(); y++) {
 					var expectedColor = new Color(expectedImage.getRGB(x, y), true);
 					var actualColor = new Color(actualImage.getRGB(x, y), true);
 					assertEquals(expectedColor, actualColor);
@@ -66,11 +66,11 @@ public class TestBc1Compression {
 		return result;
 	}
 
-	private BufferedImage crappyDecodeBc1(byte[] bytes) {
-		BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-		for (int blockX = 0; blockX < 4; blockX++) {
-			for (int blockY = 0; blockY < 4; blockY++) {
-				int blockIndex = 8 * (blockX + 4 * blockY);
+	private BufferedImage crappyDecodeBc1(byte[] bytes, int width, int height) {
+		BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+		for (int blockX = 0; blockX < width / 4; blockX++) {
+			for (int blockY = 0; blockY < height / 4; blockY++) {
+				int blockIndex = 8 * (blockX + (width / 4) * blockY);
 				float[] endpoint1 = parseColor(bytes, blockIndex);
 				float[] endpoint2 = parseColor(bytes, blockIndex + 2);
 
@@ -142,16 +142,22 @@ public class TestBc1Compression {
 		var descriptorPool = compressor.descriptorSetLayout.createPool(files.length, 0, "Bc1Descriptors");
 		var descriptorSets = descriptorPool.allocate(files.length);
 
+		long sourceOffset = 0;
+		for (int index = 0; index < files.length; index++) {
+			var image = sourceImages[index];
+			long sourceSize = 4L * image.getWidth() * image.getHeight();
+			boiler.buffers.encodeBufferedImageRGBA(sourceBuffer, image, sourceOffset);
+			sourceOffset += sourceSize;
+		}
+
+		sourceOffset = 0;
 		try (var stack = stackPush()) {
 			long startRecordTime = System.nanoTime();
 			var recorder = CommandRecorder.begin(commandBuffer, boiler, stack, "Bc1Encode");
 
-			long sourceOffset = 0;
 			long destOffset = 0;
 			for (int index = 0; index < files.length; index++) {
 				var image = sourceImages[index];
-
-				boiler.buffers.encodeBufferedImageRGBA(sourceBuffer, image, sourceOffset);
 
 				long sourceSize = 4L * image.getWidth() * image.getHeight();
 				long destSize = (long) image.getWidth() * image.getHeight() / 2;
@@ -183,7 +189,7 @@ public class TestBc1Compression {
 			var outputBuffer = memByteBuffer(destinationBuffer.hostAddress() + destinationOffset, destinationSize);
 			var outputArray = new byte[outputBuffer.capacity()];
 			outputBuffer.get(outputArray);
-			ImageIO.write(crappyDecodeBc1(outputArray), "PNG", destinationFile);
+			ImageIO.write(crappyDecodeBc1(outputArray, image.getWidth(), image.getHeight()), "PNG", destinationFile);
 			destinationFile.deleteOnExit();
 
 			destinationOffset += destinationSize;
@@ -257,7 +263,7 @@ public class TestBc1Compression {
 				var outputBuffer = memByteBuffer(destinationBuffer.hostAddress(), image.getWidth() * image.getHeight() / 2);
 				var outputArray = new byte[outputBuffer.capacity()];
 				outputBuffer.get(outputArray);
-				ImageIO.write(crappyDecodeBc1(outputArray), "PNG", destinationFile);
+				ImageIO.write(crappyDecodeBc1(outputArray, image.getWidth(), image.getHeight()), "PNG", destinationFile);
 				destinationFile.deleteOnExit();
 			}
 		}
