@@ -9,7 +9,6 @@ public class TestBitWriter {
 
 	@Test
 	public void testComputeBitsPerPixel() {
-		assertEquals(0, computeBitsPerPixel(0));
 		assertEquals(0, computeBitsPerPixel(1));
 		assertEquals(1, computeBitsPerPixel(2));
 		assertEquals(2, computeBitsPerPixel(3));

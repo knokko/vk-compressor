@@ -5,16 +5,7 @@ import java.nio.ByteBuffer;
 class BitWriter {
 
 	static int computeBitsPerPixel(int numColors) {
-		int bitsPerPixel = 0;
-		int numSupportedColors = 1;
-
-		while (numSupportedColors < numColors) {
-			bitsPerPixel += 1;
-			numSupportedColors *= 2;
-			if (numSupportedColors < 0) throw new IllegalArgumentException("Too many colors " + numColors);
-		}
-
-		return bitsPerPixel;
+		return 32 - Integer.numberOfLeadingZeros(numColors - 1);
 	}
 
 	static int pack(int value, int bitOffset) {

@@ -31,7 +31,7 @@ public class TestKim1Compression {
 		var compressor = new Kim1Compressor(simpleImage, width, height, 4);
 		assertEquals(width, compressor.width);
 		assertEquals(height, compressor.height);
-		assertEquals(6, compressor.intSize);
+		assertEquals(5, compressor.intSize);
 
 		var compressedImage = memAlloc(4 * compressor.intSize);
 		compressedImage.position(0);
@@ -65,7 +65,7 @@ public class TestKim1Compression {
 				sourceImage.getWidth(), sourceImage.getHeight(), 4
 		);
 
-		System.out.println("compressed size is " + 4 * compressor.intSize);
+		System.out.println("compressed size is " + 4 * compressor.intSize + " and file is " + file);
 
 		var compressedData = memCalloc(4 * compressor.intSize);
 		compressor.compress(compressedData);

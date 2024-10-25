@@ -57,8 +57,8 @@ public class Kim1Compressor {
 			throw new IllegalArgumentException("Too many distinct colors: " + colorTable.size());
 		}
 
-		this.intSize = 2 + nextMultipleOf(colorTable.size() * numChannels, 4) / 4 +
-				nextMultipleOf(computeBitsPerPixel(colorTable.size()) * width * height, 32) / 32;
+		int dataBitSize = 8 * colorTable.size() * numChannels + computeBitsPerPixel(colorTable.size()) * width * height;
+		this.intSize = 1 + nextMultipleOf(dataBitSize, 32) / 32;
 	}
 
 	public void compress(ByteBuffer destination) {
