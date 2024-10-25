@@ -18,7 +18,9 @@ layout(location = 0) out vec4 outColor;
 
 defineReadInt(kimBuffer)
 
-defineSampleKim(kimBuffer)
+defineSampleKimFloat(kimBuffer)
+
+defineSampleKimInt(kimBuffer)
 
 void main() {
 	outColor = sampleKim(imageIndex, textureCoordinates);

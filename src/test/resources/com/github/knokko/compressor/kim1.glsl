@@ -42,15 +42,19 @@ uint computeBitsPerPixel(uint numColors) {
 	}\
 }
 
-#define defineSampleKim(kimBufferName) vec4 sampleKim(int offset, vec2 textureCoordinates) {\
+#define	defineSampleKimFloat(kimBufferName) defineSampleKim(kimBufferName, vec2, clamp(int(textureCoordinates.x * width), 0, width - 1), clamp(int(textureCoordinates.y * height), 0, height - 1))
+
+#define	defineSampleKimInt(kimBufferName) defineSampleKim(kimBufferName, uvec2, textureCoordinates.x, textureCoordinates.y)
+
+#define defineSampleKim(kimBufferName, textureCoordinatesType, computeX, computeY) vec4 sampleKim(int offset, textureCoordinatesType textureCoordinates) {\
 	uint header = kimBufferName[offset];\
 	uint width = unpack(header, 0, 10);\
 	uint height = unpack(header, 10, 10);\
 	uint numColors = unpack(header, 20, 10);\
 	uint numChannels = 1 + unpack(header, 30, 2);\
 \
-	uint x = clamp(int(textureCoordinates.x * width), 0, width - 1);\
-	uint y = clamp(int(textureCoordinates.y * height), 0, height - 1);\
+	uint x = computeX;\
+	uint y = computeY;\
 \
 	uint bitsPerPixel = computeBitsPerPixel(numColors);\
 	uint colorIndex = readInt(32 + 8 * numColors * numChannels + bitsPerPixel * (x + y * width), bitsPerPixel);\
