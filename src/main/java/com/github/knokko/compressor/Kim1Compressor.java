@@ -8,6 +8,9 @@ import static com.github.knokko.boiler.utilities.ColorPacker.*;
 import static com.github.knokko.compressor.BitWriter.computeBitsPerPixel;
 import static com.github.knokko.compressor.BitWriter.pack;
 
+/**
+ * This class can be used to compress images to my kim1 format.
+ */
 public class Kim1Compressor {
 
 	/**
@@ -22,13 +25,37 @@ public class Kim1Compressor {
 	private final Map<Integer, Integer> colorTable = new HashMap<>();
 	private final int[] pixelBuffer;
 
-	public Kim1Compressor(ByteBuffer pixelBuffer, int width, int height, int numDataChannels) {
-		if (width >= 1024 || height >= 1024) throw new IllegalArgumentException("Too large");
-		if (numDataChannels > 4) throw new IllegalArgumentException("Too many data channels");
+	/**
+	 * Constructs a new <i>Kim1Compressor</i> capable of compressing the image stored in <i>pixelBuffer</i>.
+	 * The <i>pixelBuffer</i> must have at least <b>width * height * numDataChannels</b> <i>remaining()</i>. When
+	 * <ul>
+	 *     <li><i>numDataChannels</i> is 4, all pixels are stored in RGBA format</li>
+	 *     <li><i>numDataChannels</i> is 3, all pixels are stored in RGB format, and are assumed to be opaque</li>
+	 *     <li>
+	 *         <i>numDataChannels</i> is 2, all pixels are stored in RG format, and are assumed to be opaque. The
+	 *         B component of each pixel is assumed to be identical to the G component.
+	 *     </li>
+	 *     <li>
+	 *         <i>numDataChannels</i> is 1, the image is assumed to be greyscale,
+	 *         and all pixels are assumed to be opaque
+	 *     </li>
+	 * </ul>
+	 * @param pixelBuffer The buffer that contains all the image data
+	 * @param width The width of the image, in pixels
+	 * @param height The height of the image, in pixels
+	 * @param numDataChannels The number of bytes per pixel
+	 * @throws Kim1CompressionException When the width, height, or number of distinct colors, is greater than or equal
+	 * to 1024.
+	 */
+	public Kim1Compressor(ByteBuffer pixelBuffer, int width, int height, int numDataChannels) throws Kim1CompressionException {
+		if (width >= 1024) throw new Kim1CompressionException("The width " + width + " must be smaller than 1024");
+		if (height >= 1024) throw new Kim1CompressionException("The height " + height + " must be smaller than 1024");
+		if (width < 1 || height < 1) throw new IllegalArgumentException("Both width and height must be positive");
+		if (numDataChannels > 4) throw new IllegalArgumentException("Too many data channels, at most 4 are supported");
 		if (numDataChannels < 1) throw new IllegalArgumentException("Number of data channels must be positive");
-		int expectedSize = 4 * width * height;
-		if (expectedSize != pixelBuffer.remaining()) {
-			throw new IllegalArgumentException("Expected imageData to have a length of " + expectedSize +
+		int expectedSize = numDataChannels * width * height;
+		if (expectedSize > pixelBuffer.remaining()) {
+			throw new IllegalArgumentException("Expected imageData to have a length of at least " + expectedSize +
 					", but got " + pixelBuffer.remaining());
 		}
 		this.width = width;
@@ -54,13 +81,22 @@ public class Kim1Compressor {
 
 		this.numChannels = numChannels;
 		if (colorTable.size() >= 1024) {
-			throw new IllegalArgumentException("Too many distinct colors: " + colorTable.size());
+			throw new Kim1CompressionException(
+					"Too many distinct colors: " + colorTable.size() + "; at most 1023 are allowed"
+			);
 		}
 
 		int dataBitSize = 8 * colorTable.size() * numChannels + computeBitsPerPixel(colorTable.size()) * width * height;
 		this.intSize = 1 + nextMultipleOf(dataBitSize, 32) / 32;
 	}
 
+	/**
+	 * Compresses the source image, and stores the result in <i>destination</i>. Note:
+	 * <ul>
+	 *     <li><i>destination</i> must have at least <b>this.intSize * 4</b> bytes <i>remaining()</i></li>
+	 *     <li>this method will increase the <i>position()</i> of <i>destination</i></li>
+	 * </ul>
+	 */
 	public void compress(ByteBuffer destination) {
 		int bitsPerPixel = computeBitsPerPixel(colorTable.size());
 

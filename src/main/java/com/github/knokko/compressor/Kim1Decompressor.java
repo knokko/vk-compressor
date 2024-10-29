@@ -6,12 +6,22 @@ import static com.github.knokko.boiler.utilities.ColorPacker.green;
 import static com.github.knokko.boiler.utilities.ColorPacker.red;
 import static com.github.knokko.compressor.BitWriter.*;
 
+/**
+ * This class can be used to recover the data of images compressed by <i>Kim1Compressor</i>.
+ */
 public class Kim1Decompressor {
 
+	/**
+	 * The width and height of the original image, in pixels
+	 */
 	public final int width, height;
 	private final int numChannels, numColors;
 	private final ByteBuffer compressedData;
 
+	/**
+	 * Constructs a <i>Kim1Decompressor</i> that can recover the original image from the given <i>compressedData</i>
+	 * @param compressedData The data that was the result of compressing an image using <i>Kim1Compressor</i>
+	 */
 	public Kim1Decompressor(ByteBuffer compressedData) {
 		this.compressedData = compressedData;
 		int header = compressedData.getInt(0);
@@ -22,6 +32,12 @@ public class Kim1Decompressor {
 		this.numChannels = 1 + unpack(header, 30, 2);
 	}
 
+	/**
+	 * Gets the color of the pixel at coordinates <i>(x, y)</i>, packed using the <i>ColorPacker</i> of vk-boiler.
+	 * @param x The x-coordinate of the pixel
+	 * @param y The y-coordinate of the pixel
+	 * @return The packed color of the pixel
+	 */
 	public int getColor(int x, int y) {
 		int bitsPerPixel = computeBitsPerPixel(numColors);
 		int colorIndex = readInt(32 + 8 * numColors * numChannels + bitsPerPixel * (x + y * width), bitsPerPixel);

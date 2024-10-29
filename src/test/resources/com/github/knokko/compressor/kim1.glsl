@@ -46,7 +46,7 @@ uint computeBitsPerPixel(uint numColors) {
 
 #define	defineSampleKimInt(kimBufferName) defineSampleKim(kimBufferName, uvec2, textureCoordinates.x, textureCoordinates.y)
 
-#define defineSampleKim(kimBufferName, textureCoordinatesType, computeX, computeY) vec4 sampleKim(int offset, textureCoordinatesType textureCoordinates) {\
+#define defineSampleKim(kimBufferName, textureCoordinatesType, computeX, computeY) vec4 sampleKim(uint offset, textureCoordinatesType textureCoordinates) {\
 	uint header = kimBufferName[offset];\
 	uint width = unpack(header, 0, 10);\
 	uint height = unpack(header, 10, 10);\
@@ -57,9 +57,9 @@ uint computeBitsPerPixel(uint numColors) {
 	uint y = computeY;\
 \
 	uint bitsPerPixel = computeBitsPerPixel(numColors);\
-	uint colorIndex = readInt(32 + 8 * numColors * numChannels + bitsPerPixel * (x + y * width), bitsPerPixel);\
+	uint colorIndex = readInt(32 * offset + 32 + 8 * numColors * numChannels + bitsPerPixel * (x + y * width), bitsPerPixel);\
 \
-	uint color = readInt(32 + colorIndex * 8 * numChannels, 8 * numChannels);\
+	uint color = readInt(32 * offset + 32 + colorIndex * 8 * numChannels, 8 * numChannels);\
 	uint ured = color & 255u;\
 	uint ugreen = (color >> 8) & 255u;\
 	uint ublue = (color >> 16) & 255u;\
