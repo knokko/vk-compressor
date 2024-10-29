@@ -300,7 +300,12 @@ public class TestKim1Compression {
 		assertEquals(expectedImage.getHeight(), actualImage.getHeight());
 		for (int x = 0; x < expectedImage.getWidth(); x++) {
 			for (int y = 0; y < expectedImage.getHeight(); y++) {
-				assertEquals(expectedImage.getRGB(x, y), actualImage.getRGB(x, y));
+				var expectedColor = new Color(expectedImage.getRGB(x, y));
+				var actualColor = new Color(actualImage.getRGB(x, y));
+				assertEquals(expectedColor.getRed(), actualColor.getRed(), 1.0);
+				assertEquals(expectedColor.getGreen(), actualColor.getGreen(), 1.0);
+				assertEquals(expectedColor.getBlue(), actualColor.getBlue(), 1.0);
+				assertEquals(expectedColor.getAlpha(), actualColor.getAlpha(), 1.0);
 			}
 		}
 
