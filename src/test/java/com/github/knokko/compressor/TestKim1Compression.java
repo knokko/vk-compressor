@@ -19,6 +19,8 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 import static com.github.knokko.boiler.utilities.ColorPacker.*;
@@ -128,6 +130,7 @@ public class TestKim1Compression {
 		File[] files = new File("src/test/resources/com/github/knokko/compressor/mardek").listFiles();
 		assertNotNull(files);
 		assertEquals(99, files.length);
+		Arrays.sort(files, (a, b) -> a.getName().compareToIgnoreCase(b.getName()));
 
 		BufferedImage[] images = new BufferedImage[files.length];
 
@@ -293,7 +296,7 @@ public class TestKim1Compression {
 				targetImage.width(), targetImage.height()
 		);
 		var expectedInput = TestKim1Compression.class.getResourceAsStream("expected-kim1-result.png");
-		var expectedImage = ImageIO.read(expectedInput);
+		var expectedImage = ImageIO.read(Objects.requireNonNull(expectedInput));
 		expectedInput.close();
 
 		assertEquals(expectedImage.getWidth(), actualImage.getWidth());
