@@ -12,6 +12,20 @@ import static com.github.knokko.compressor.BitWriter.*;
 public class Kim1Decompressor {
 
 	/**
+	 * Extracts the width (in pixels) from the header (first element) of the compressed image data
+	 */
+	public static int width(int header) {
+		return unpack(header, 0, 10);
+	}
+
+	/**
+	 * Extracts the height (in pixels) from the header (first element) of the compressed image data
+	 */
+	public static int height(int header) {
+		return unpack(header, 10, 10);
+	}
+
+	/**
 	 * The width and height of the original image, in pixels
 	 */
 	public final int width, height;
@@ -26,8 +40,8 @@ public class Kim1Decompressor {
 		this.compressedData = compressedData;
 		int header = compressedData.getInt(0);
 
-		this.width = unpack(header, 0, 10);
-		this.height = unpack(header, 10, 10);
+		this.width = width(header);
+		this.height = height(header);
 		this.numColors = unpack(header, 20, 10);
 		this.numChannels = 1 + unpack(header, 30, 2);
 	}
