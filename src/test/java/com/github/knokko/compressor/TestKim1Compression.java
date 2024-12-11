@@ -47,18 +47,23 @@ public class TestKim1Compression {
 		assertEquals(height, compressor.height);
 		assertEquals(5, compressor.intSize);
 
-		var compressedImage = memAlloc(4 * compressor.intSize);
-		compressedImage.position(0);
+		var compressedImage = memCalloc(2 * 4 * compressor.intSize);
+		compressor.compress(compressedImage);
 		compressor.compress(compressedImage);
 
-		var decompressor = new Kim1Decompressor(compressedImage);
-		assertEquals(width, decompressor.width);
-		assertEquals(height, decompressor.height);
+		compressedImage.position(0);
+		for (int position : new int[] { 0, 4 * compressor.intSize }) {
+			while (compressedImage.position() < position) compressedImage.putInt(0);
 
-		assertEquals(rgb(1, 2, 3), decompressor.getColor(0, 0));
-		assertEquals(rgba(100, 101, 102, 103), decompressor.getColor(1, 0));
-		assertEquals(rgb(200, 201, 202), decompressor.getColor(0, 1));
-		assertEquals(rgb(200, 201, 202), decompressor.getColor(1, 1));
+			var decompressor = new Kim1Decompressor(compressedImage);
+			assertEquals(width, decompressor.width);
+			assertEquals(height, decompressor.height);
+
+			assertEquals(rgb(1, 2, 3), decompressor.getColor(0, 0));
+			assertEquals(rgba(100, 101, 102, 103), decompressor.getColor(1, 0));
+			assertEquals(rgb(200, 201, 202), decompressor.getColor(0, 1));
+			assertEquals(rgb(200, 201, 202), decompressor.getColor(1, 1));
+		}
 
 		memFree(compressedImage);
 

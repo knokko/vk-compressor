@@ -38,7 +38,7 @@ public class Kim1Decompressor {
 	 */
 	public Kim1Decompressor(ByteBuffer compressedData) {
 		this.compressedData = compressedData;
-		int header = compressedData.getInt(0);
+		int header = compressedData.getInt(compressedData.position());
 
 		this.width = width(header);
 		this.height = height(header);
@@ -66,11 +66,11 @@ public class Kim1Decompressor {
 	private int readInt(int bitIndex, int bitLength) {
 		int intIndex1 = bitIndex / 32;
 		int bitIndex1 = bitIndex % 32;
-		int value1 = compressedData.getInt(4 * intIndex1);
+		int value1 = compressedData.getInt(compressedData.position() + 4 * intIndex1);
 		int bitLength2 = bitIndex1 + bitLength - 32;
 		if (bitLength2 > 0) {
 			int bitLength1 = bitLength - bitLength2;
-			int value2 = compressedData.getInt(4 * intIndex1 + 4);
+			int value2 = compressedData.getInt(compressedData.position() + 4 * intIndex1 + 4);
 			return unpack(value1, 32 - bitLength1, bitLength1) | pack(unpack(value2, 0, bitLength2), bitLength1);
 		} else {
 			return unpack(value1, bitIndex1, bitLength);
