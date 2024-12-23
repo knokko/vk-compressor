@@ -21,6 +21,18 @@ import static org.lwjgl.vulkan.VK12.VK_API_VERSION_1_2;
 
 public class TestBc1Compression {
 
+	static void assertImageEquals(BufferedImage expected, BufferedImage actual) {
+		assertEquals(expected.getWidth(), actual.getWidth());
+		assertEquals(expected.getHeight(), actual.getHeight());
+		for (int x = 0; x < expected.getWidth(); x++) {
+			for (int y = 0; y < expected.getHeight(); y++) {
+				var expectedColor = new Color(expected.getRGB(x, y), true);
+				var actualColor = new Color(actual.getRGB(x, y), true);
+				assertEquals(expectedColor, actualColor);
+			}
+		}
+	}
+
 	private void checkResults(File actualFolder) throws IOException {
 		assertTrue(actualFolder.isDirectory());
 		File[] actualFiles = actualFolder.listFiles();
@@ -36,19 +48,7 @@ public class TestBc1Compression {
 		for (File expected : expectedFiles) {
 			File actual = new File(actualFolder + "/" + expected.getName());
 			assertEquals(expected.length(), actual.length(), expected.getName());
-
-			var expectedImage = ImageIO.read(expected);
-			var actualImage = ImageIO.read(actual);
-
-			assertEquals(expectedImage.getWidth(), actualImage.getWidth());
-			assertEquals(expectedImage.getHeight(), actualImage.getHeight());
-			for (int x = 0; x < expectedImage.getWidth(); x++) {
-				for (int y = 0; y < expectedImage.getHeight(); y++) {
-					var expectedColor = new Color(expectedImage.getRGB(x, y), true);
-					var actualColor = new Color(actualImage.getRGB(x, y), true);
-					assertEquals(expectedColor, actualColor);
-				}
-			}
+			assertImageEquals(ImageIO.read(expected), ImageIO.read(actual));
 		}
 	}
 
