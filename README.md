@@ -20,8 +20,8 @@ From my rough measurements (on my PC):
   which is ~500k pixels per millisecond
 - The kim1 encoder can compress ~13M pixels in ~300ms,
   which is ~40k pixels per millisecond
-- The kim2 encoder can compress ~6M pixels in ~300ms,
-  which is ~20k pixels per millisecond
+- The kim2 encoder can compress ~58M pixels in ~400ms,
+  which is ~140k pixels per millisecond
 
 ### Adding vk-compressor as dependency
 #### Java version

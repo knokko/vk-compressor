@@ -178,17 +178,6 @@ public class TestKim2Compression {
 			compress(input, compressed, bitsPerPixel);
 			compressed.flip();
 
-			if (bitsPerPixel == 8) {
-				BufferedImage massiveInput = ImageIO.read(requireNonNull(TestKim2Compression.class.getResource("Massive.png")));
-				IntBuffer massiveCompressed = IntBuffer.allocate(predictIntSize(massiveInput.getWidth(), massiveInput.getHeight(), bitsPerPixel));
-				long startTime = System.nanoTime();
-				for (int counter = 0; counter < 1; counter++) {
-					compress(massiveInput, massiveCompressed, bitsPerPixel);
-					massiveCompressed.flip();
-				}
-				System.out.println("Took " + ((System.nanoTime() - startTime) / 1000_000) + " ms");
-			}
-
 			assertEquals(input.getWidth(), getWidth(compressed.get(0)));
 			assertEquals(input.getWidth(), getHeight(compressed.get(0)));
 			assertEquals(bitsPerPixel, getBitsPerPixel(compressed.get(0)));
