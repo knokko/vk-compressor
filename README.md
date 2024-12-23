@@ -6,6 +6,10 @@ compressed (Vulkan) image formats. Currently, it provides:
 - a ['kim1' image compressor](docs/kim1.md), decompressor, and sampler.
 The 'kim1' format is a format that I invented for small images
 where many pixels have the same color as another pixel.
+- a ['kim2' image compressor](docs/kim2.md), decompressor, and sampler.
+The 'kim2' format is a format that I invented for images where
+each pixel has approximately the same color,
+but with a possibly different intensity.
 
 This library requires
 [vk-boiler 4.2](https://github.com/knokko/vk-boiler).
@@ -16,6 +20,8 @@ From my rough measurements (on my PC):
   which is ~500k pixels per millisecond
 - The kim1 encoder can compress ~13M pixels in ~300ms,
   which is ~40k pixels per millisecond
+- The kim2 encoder can compress ~58M pixels in ~400ms,
+  which is ~140k pixels per millisecond
 
 ### Adding vk-compressor as dependency
 #### Java version
@@ -41,7 +47,7 @@ repositories {
 ...
 dependencies {
   ...
-  implementation 'com.github.knokko:vk-compressor:v0.2.3'
+  implementation 'com.github.knokko:vk-compressor:v0.3.0'
 }
 ```
 
@@ -59,6 +65,6 @@ dependencies {
 <dependency>
   <groupId>com.github.knokko</groupId>
   <artifactId>vk-compressor</artifactId>
-  <version>v0.2.3</version>
+  <version>v0.3.0</version>
 </dependency>
 ```
