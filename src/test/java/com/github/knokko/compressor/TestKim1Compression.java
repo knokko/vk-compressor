@@ -11,6 +11,7 @@ import com.github.knokko.boiler.pipelines.GraphicsPipelineBuilder;
 import com.github.knokko.boiler.pipelines.ShaderInfo;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
 import org.junit.jupiter.api.Test;
+import org.lwjgl.BufferUtils;
 import org.lwjgl.vulkan.*;
 
 import javax.imageio.ImageIO;
@@ -326,5 +327,28 @@ public class TestKim1Compression {
 		compressedBuffer.destroy(boiler);
 		uncompressedBuffer.destroy(boiler);
 		boiler.destroyInitialObjects();
+	}
+
+	@Test
+	public void orangeRegressionTest() {
+		var orangeBuffer = BufferUtils.createByteBuffer(3 * 2 * 2);
+		for (int counter = 0; counter < 3; counter++) {
+			orangeBuffer.put((byte) 255).put((byte) 255).put((byte) 0);
+		}
+		orangeBuffer.put((byte) 11).put((byte) 22).put((byte) 223);
+		orangeBuffer.flip();
+
+		var compressor = new Kim1Compressor(orangeBuffer, 2, 2, 3);
+		assertEquals(3, compressor.intSize);
+
+		var compressedBuffer = BufferUtils.createByteBuffer(4 * compressor.intSize);
+		compressor.compress(compressedBuffer);
+		compressedBuffer.flip();
+
+		var decompressor = new Kim1Decompressor(compressedBuffer);
+		assertEquals(rgb(255, 255, 0), decompressor.getColor(0, 0));
+		assertEquals(rgb(255, 255, 0), decompressor.getColor(1, 0));
+		assertEquals(rgb(255, 255, 0), decompressor.getColor(0, 1));
+		assertEquals(rgb(11, 22, 223), decompressor.getColor(1, 1));
 	}
 }

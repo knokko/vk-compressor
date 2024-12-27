@@ -39,7 +39,13 @@ class BitWriter {
 
 	public void flush() {
 		if (bitIndex > 0) {
-			byteBuffer.putInt((int) bits);
+			ByteBuffer dummyBuffer = ByteBuffer.allocate(4).order(byteBuffer.order());
+			dummyBuffer.putInt(0, (int) bits);
+
+			byteBuffer.put(dummyBuffer.get());
+			if (bitIndex > 8) byteBuffer.put(dummyBuffer.get());
+			if (bitIndex > 16) byteBuffer.put(dummyBuffer.get());
+			if (bitIndex > 32) byteBuffer.put(dummyBuffer.get());
 			bits = 0;
 			bitIndex = 0;
 		}

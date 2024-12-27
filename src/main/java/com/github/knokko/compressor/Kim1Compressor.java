@@ -128,5 +128,6 @@ public class Kim1Compressor {
 		}
 
 		bitWriter.flush();
+		while (destination.position() % 4 != 0) destination.put((byte) 0);
 	}
 }

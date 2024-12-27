@@ -47,7 +47,7 @@ repositories {
 ...
 dependencies {
   ...
-  implementation 'com.github.knokko:vk-compressor:v0.3.0'
+  implementation 'com.github.knokko:vk-compressor:v0.3.1'
 }
 ```
 
@@ -65,6 +65,6 @@ dependencies {
 <dependency>
   <groupId>com.github.knokko</groupId>
   <artifactId>vk-compressor</artifactId>
-  <version>v0.3.0</version>
+  <version>v0.3.1</version>
 </dependency>
 ```
