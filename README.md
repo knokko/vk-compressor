@@ -3,6 +3,7 @@
 This library provides methods and classes to deal with some
 compressed (Vulkan) image formats. Currently, it provides:
 - a [BC1 image compressor](docs/bc1.md) using a compute shader
+- a [wrapper of a BC7 image compressor](docs/bc7.md)
 - a ['kim1' image compressor](docs/kim1.md), decompressor, and sampler.
 The 'kim1' format is a format that I invented for small images
 where many pixels have the same color as another pixel.
@@ -18,6 +19,9 @@ This library requires
 From my rough measurements (on my PC):
 - The bc1 encoder can compress ~12M pixels in ~22ms,
   which is ~500k pixels per millisecond
+- The bc7 encoder can compress ~48M pixels in ~36 seconds,
+  which is ~1.33k pixels per millisecond 
+  (but note that encoding bc7 images is inherently difficult)
 - The kim1 encoder can compress ~13M pixels in ~300ms,
   which is ~40k pixels per millisecond
 - The kim2 encoder can compress ~58M pixels in ~400ms,
