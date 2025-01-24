@@ -1,0 +1,4 @@
+dependencies {
+    compileOnly platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+    compileOnly "org.lwjgl:lwjgl"
+}

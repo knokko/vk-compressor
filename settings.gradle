@@ -1,0 +1,3 @@
+rootProject.name = "vk-compressor"
+
+include "bc1", "bc7", "kim1", "kim2", "test-helper"

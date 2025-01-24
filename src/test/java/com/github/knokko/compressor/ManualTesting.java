@@ -24,6 +24,7 @@ import javax.imageio.ImageIO;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.util.Objects;
 
 import static java.lang.Math.toIntExact;
 import static org.lwjgl.vulkan.KHRSurface.VK_PRESENT_MODE_FIFO_KHR;
@@ -47,7 +48,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		var bc1Worker = new Bc1Worker(bc1Compressor);
 		var bc1CompressorDescriptorSet = bc1Compressor.descriptorBank.borrowDescriptorSet("Bc1Image");
 
-		var sourceImage = ImageIO.read(ManualTesting.class.getResourceAsStream("mardek/Flametongue.png"));
+		var sourceImage = ImageIO.read(Objects.requireNonNull(ManualTesting.class.getResourceAsStream("mardek/Flametongue.png")));
 		var bc1Image = boiler.images.createSimple(
 				sourceImage.getWidth(), sourceImage.getHeight(), VK_FORMAT_BC1_RGBA_SRGB_BLOCK,
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -214,6 +215,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		);
 
 		var specializationMappings = VkSpecializationMapEntry.calloc(1, stack);
+		//noinspection resource
 		specializationMappings.get(0).set(0, 0, 4);
 
 		var specializationInfo = VkSpecializationInfo.calloc(stack);

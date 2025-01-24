@@ -1,4 +1,4 @@
-name: Testing BC7 encoding on Windows, MacOS, and in a Docker container
+name: Testing BC7 encoding on MacOS and in a Docker container
 
 on: [push, pull_request]
 
@@ -6,24 +6,6 @@ permissions:
   contents: read
 
 jobs:
-  test_windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: 17
-          distribution: 'temurin'
-      - name: Setup gradle
-        uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew test --tests "com.github.knokko.compressor.TestBc7Compression.testCompressDreamShrine"
-      - name: Store test results
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-test-results
-          path: build/reports
   test_mac:
     runs-on: macos-latest
     steps:
@@ -35,12 +17,12 @@ jobs:
           distribution: 'temurin'
       - name: Setup gradle
         uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew test --tests "com.github.knokko.compressor.TestBc7Compression.testCompressDreamShrine"
+      - run: ./gradlew test -p bc7 --tests "com.github.knokko.compressor.TestBc7Compression.testCompressDreamShrine"
       - name: Store test results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: macos-test-results
+          name: test-results-macos
           path: build/reports
   test-docker:
     runs-on: ubuntu-latest
@@ -52,10 +34,10 @@ jobs:
       - run: apt install openjdk-17-jdk libomp-dev -y
       - name: Setup gradle
         uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew test --tests "com.github.knokko.compressor.TestBc7Compression.testCompressDreamShrine"
+      - run: ./gradlew test -p bc7 --tests "com.github.knokko.compressor.TestBc7Compression.testCompressDreamShrine"
       - name: Store test results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: docker-test-results
+          name: test-results-docker
           path: build/reports

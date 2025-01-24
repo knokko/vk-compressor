@@ -2,12 +2,12 @@
 ## Vulkan image compressor, written in Java
 This library provides methods and classes to deal with some
 compressed (Vulkan) image formats. Currently, it provides:
-- a [BC1 image compressor](docs/bc1.md) using a compute shader
-- a [wrapper of a BC7 image compressor](docs/bc7.md)
-- a ['kim1' image compressor](docs/kim1.md), decompressor, and sampler.
+- a [BC1 image compressor](bc1/docs.md) using a compute shader
+- a [wrapper of a BC7 image compressor](bc7/docs.md)
+- a ['kim1' image compressor](kim1/docs.md), decompressor, and sampler.
 The 'kim1' format is a format that I invented for small images
 where many pixels have the same color as another pixel.
-- a ['kim2' image compressor](docs/kim2.md), decompressor, and sampler.
+- a ['kim2' image compressor](kim2/docs.md), decompressor, and sampler.
 The 'kim2' format is a format that I invented for images where
 each pixel has approximately the same color,
 but with a possibly different intensity.
@@ -41,6 +41,13 @@ the LWJGL and `vk-boiler` dependencies yourself (hint: use
 LWJGL and `vk-boiler` you want to use (as long as they
 are compatible).
 
+#### Modules
+This project is split into 4 gradle modules: 1 for each
+compression format: `kim1`, `kim2`, `bc1`, and `bc7`. You
+should add the ones you need. The `Gradle` and `Maven`
+examples below add just 1 of the modules. You need 1 line
+for each module you want.
+
 #### Gradle
 ```
 ...
@@ -51,7 +58,7 @@ repositories {
 ...
 dependencies {
   ...
-  implementation 'com.github.knokko:vk-compressor:v0.4.0'
+  implementation 'com.github.knokko.vk-compressor:bc1:v0.5.0'
 }
 ```
 
@@ -67,8 +74,8 @@ dependencies {
 </repositories>
 ...
 <dependency>
-  <groupId>com.github.knokko</groupId>
-  <artifactId>vk-compressor</artifactId>
-  <version>v0.4.0</version>
+  <groupId>com.github.knokko.vk-compressor</groupId>
+  <artifactId>kim2</artifactId>
+  <version>v0.5.0</version>
 </dependency>
 ```
