@@ -5,7 +5,7 @@ made to compress small images where the number of distinct
 colors is rather small, for instance
 
 ![An example image with few distinct colors](
-./src/test/resources/com/github/knokko/compressor/mardek/Flametongue.png
+../test-helper/src/main/resources/com/github/knokko/compressor/mardek/Flametongue.png
 )
 
 - If you store this image uncompressed, it would take
