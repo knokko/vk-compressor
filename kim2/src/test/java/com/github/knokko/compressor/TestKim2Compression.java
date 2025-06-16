@@ -2,9 +2,15 @@ package com.github.knokko.compressor;
 
 import com.github.knokko.boiler.builders.BoilerBuilder;
 import com.github.knokko.boiler.commands.SingleTimeCommands;
+import com.github.knokko.boiler.descriptors.DescriptorCombiner;
+import com.github.knokko.boiler.descriptors.DescriptorSetLayoutBuilder;
+import com.github.knokko.boiler.descriptors.DescriptorUpdater;
 import com.github.knokko.boiler.descriptors.VkbDescriptorSetLayout;
+import com.github.knokko.boiler.images.ImageBuilder;
+import com.github.knokko.boiler.memory.MemoryCombiner;
 import com.github.knokko.boiler.pipelines.GraphicsPipelineBuilder;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
+import com.github.knokko.boiler.utilities.ImageCoding;
 import org.junit.jupiter.api.Test;
 import org.lwjgl.vulkan.*;
 
@@ -206,22 +212,23 @@ public class TestKim2Compression {
 			compressedSize += predictByteSize(input.getWidth(), input.getHeight(), bitsPerPixel);
 		}
 
-		var compressed = boiler.buffers.createMapped(
-				compressedSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "CompressedKim2Buffer"
+		var combiner = new MemoryCombiner(boiler, "Kim2Compression");
+		var compressed = combiner.addMappedDeviceLocalBuffer(
+				compressedSize, boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
 		);
-		var recovered = boiler.buffers.createMapped(
+		var recovered = combiner.addMappedBuffer(
 				16L * input.getWidth() * input.getHeight(),
-				VK_BUFFER_USAGE_TRANSFER_DST_BIT, "RecoveredKim2Buffer"
+				4L, VK_BUFFER_USAGE_TRANSFER_DST_BIT
 		);
-		var vertices = boiler.buffers.createMapped(48L, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, "Kim2Vertices");
-		var targetImage = boiler.images.createSimple(
-				2 * input.getWidth(), 2 * input.getHeight(), VK_FORMAT_R8G8B8A8_SRGB,
-				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-				VK_IMAGE_ASPECT_COLOR_BIT, "Kim2TargetImage"
-		);
+		var vertices = combiner.addMappedDeviceLocalBuffer(48L, 8L, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+		var targetImage = combiner.addImage(new ImageBuilder(
+				"Kim2TargetImage", 2 * input.getWidth(), 2 * input.getHeight()
+		).format(VK_FORMAT_R8G8B8A8_SRGB).setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT));
+		var memory = combiner.build(false);
 
-		var compressedHost = compressed.fullMappedRange().intBuffer();
-		var verticesHost = vertices.fullMappedRange().byteBuffer();
+		var compressedHost = compressed.intBuffer();
+		var verticesHost = vertices.byteBuffer();
 		for (int bitsPerPixel : new int[] { 1, 2, 4, 8 }) {
 			float x = -1f;
 			float y = -1f;
@@ -233,24 +240,22 @@ public class TestKim2Compression {
 
 		VkbDescriptorSetLayout descriptorLayout;
 		try (var stack = stackPush()) {
-			var descriptorBindings = VkDescriptorSetLayoutBinding.calloc(1, stack);
-			boiler.descriptors.binding(
-					descriptorBindings, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			var builder = new DescriptorSetLayoutBuilder(stack, 1);
+			builder.set(
+					0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 					VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
 			);
-			descriptorLayout = boiler.descriptors.createLayout(stack, descriptorBindings, "Kim2DescriptorLayout");
+			descriptorLayout = builder.build(boiler, "Kim2DescriptorLayout");
 		}
 
-		var descriptorPool = descriptorLayout.createPool(1, 0, "Kim2DescriptorPool");
-		var descriptorSet = descriptorPool.allocate(1)[0];
+		var descriptorCombiner = new DescriptorCombiner(boiler);
+		var descriptorSet = descriptorCombiner.addMultiple(descriptorLayout, 1);
+		var descriptorPool = descriptorCombiner.build("Kim2Descriptors");
 
 		try (var stack = stackPush()) {
-			var writes = VkWriteDescriptorSet.calloc(1, stack);
-			boiler.descriptors.writeBuffer(
-					stack, writes, descriptorSet, 0,
-					VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, compressed.fullRange()
-			);
-			vkUpdateDescriptorSets(boiler.vkDevice(), writes, null);
+			var updater = new DescriptorUpdater(stack, 1);
+			updater.writeStorageBuffer(0, descriptorSet[0], 0, compressed);
+			updater.update(boiler);
 		}
 
 		var pipelineLayout = boiler.pipelines.createLayout(
@@ -272,10 +277,10 @@ public class TestKim2Compression {
 
 			var pipelineBuilder = new GraphicsPipelineBuilder(boiler, stack);
 			String path = "com/github/knokko/compressor/";
-			pipelineBuilder.simpleShaderStages("Kim2", path + "kim2.vert.spv", path + "kim2.frag.spv");
+			pipelineBuilder.simpleShaderStages("Kim2", path, "kim2.vert.spv", "kim2.frag.spv");
 			pipelineBuilder.ciPipeline.pVertexInputState(vertexInput);
 			pipelineBuilder.simpleInputAssembly();
-			pipelineBuilder.fixedViewport(targetImage.width(), targetImage.height());
+			pipelineBuilder.fixedViewport(targetImage.width, targetImage.height);
 			pipelineBuilder.simpleRasterization(VK_CULL_MODE_NONE);
 			pipelineBuilder.noMultisampling();
 			pipelineBuilder.noDepthStencil();
@@ -292,11 +297,11 @@ public class TestKim2Compression {
 
 			var colorAttachments = VkRenderingAttachmentInfo.calloc(1, recorder.stack);
 			recorder.simpleColorRenderingAttachment(
-					colorAttachments.get(0), targetImage.vkImageView(), VK_ATTACHMENT_LOAD_OP_CLEAR,
+					colorAttachments.get(0), targetImage.vkImageView, VK_ATTACHMENT_LOAD_OP_CLEAR,
 					VK_ATTACHMENT_STORE_OP_STORE, 0f, 0f, 0f, 0f
 			);
 			recorder.beginSimpleDynamicRendering(
-					targetImage.width(), targetImage.height(), colorAttachments,
+					targetImage.width, targetImage.height, colorAttachments,
 					null, null
 			);
 
@@ -304,18 +309,18 @@ public class TestKim2Compression {
 			recorder.bindGraphicsDescriptors(pipelineLayout, descriptorSet);
 			vkCmdBindVertexBuffers(
 					recorder.commandBuffer, 0,
-					recorder.stack.longs(vertices.vkBuffer()),
+					recorder.stack.longs(vertices.vkBuffer),
 					recorder.stack.longs(0)
 			);
 			vkCmdDraw(recorder.commandBuffer, 6, 4, 0, 0);
 			recorder.endDynamicRendering();
 
 			recorder.transitionLayout(targetImage, ResourceUsage.COLOR_ATTACHMENT_WRITE, ResourceUsage.TRANSFER_SOURCE);
-			recorder.copyImageToBuffer(targetImage, recovered.fullRange());
+			recorder.copyImageToBuffer(targetImage, recovered);
 		});
 		commands.destroy();
 
-		var recoveredImage = boiler.buffers.decodeBufferedImageRGBA(recovered, 0L, targetImage.width(), targetImage.height());
+		var recoveredImage = ImageCoding.decodeBufferedImage(recovered.byteBuffer(), targetImage.width, targetImage.height);
 		assertImageEquals(recoveredEarth(1), recoveredImage.getSubimage(0, 0, input.getWidth(), input.getHeight()));
 		assertImageEquals(recoveredEarth(2), recoveredImage.getSubimage(
 				input.getWidth(), 0, input.getWidth(), input.getHeight()
@@ -327,12 +332,9 @@ public class TestKim2Compression {
 				input.getWidth(), input.getHeight(), input.getWidth(), input.getHeight()
 		));
 
-		descriptorPool.destroy();
-		descriptorLayout.destroy();
-		recovered.destroy(boiler);
-		compressed.destroy(boiler);
-		vertices.destroy(boiler);
-		targetImage.destroy(boiler);
+		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
+		vkDestroyDescriptorSetLayout(boiler.vkDevice(), descriptorLayout.vkDescriptorSetLayout, null);
+		memory.destroy(boiler);
 		vkDestroyPipeline(boiler.vkDevice(), graphicsPipeline, null);
 		vkDestroyPipelineLayout(boiler.vkDevice(), pipelineLayout, null);
 		boiler.destroyInitialObjects();

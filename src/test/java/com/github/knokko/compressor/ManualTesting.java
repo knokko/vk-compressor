@@ -6,9 +6,13 @@ import com.github.knokko.boiler.builders.BoilerBuilder;
 import com.github.knokko.boiler.builders.WindowBuilder;
 import com.github.knokko.boiler.commands.CommandRecorder;
 import com.github.knokko.boiler.commands.SingleTimeCommands;
-import com.github.knokko.boiler.descriptors.HomogeneousDescriptorPool;
+import com.github.knokko.boiler.descriptors.DescriptorCombiner;
+import com.github.knokko.boiler.descriptors.DescriptorSetLayoutBuilder;
+import com.github.knokko.boiler.descriptors.DescriptorUpdater;
 import com.github.knokko.boiler.descriptors.VkbDescriptorSetLayout;
+import com.github.knokko.boiler.images.ImageBuilder;
 import com.github.knokko.boiler.images.VkbImage;
+import com.github.knokko.boiler.memory.MemoryCombiner;
 import com.github.knokko.boiler.pipelines.GraphicsPipelineBuilder;
 import com.github.knokko.boiler.pipelines.ShaderInfo;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
@@ -40,46 +44,56 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 				.validation()
 				.enableDynamicRendering()
 				.addWindow(new WindowBuilder(800, 500, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
-				.requiredFeatures10(VkPhysicalDeviceFeatures::textureCompressionBC)
+				.requiredFeatures10("BC compression", VkPhysicalDeviceFeatures::textureCompressionBC)
 				.featurePicker10(((stack, supportedFeatures, toEnable) -> toEnable.textureCompressionBC(true)))
 				.build();
 
-		var bc1Compressor = new Bc1Compressor(boiler);
-		var bc1Worker = new Bc1Worker(bc1Compressor);
-		var bc1CompressorDescriptorSet = bc1Compressor.descriptorBank.borrowDescriptorSet("Bc1Image");
-
 		var sourceImage = ImageIO.read(Objects.requireNonNull(ManualTesting.class.getResourceAsStream("mardek/Flametongue.png")));
-		var bc1Image = boiler.images.createSimple(
-				sourceImage.getWidth(), sourceImage.getHeight(), VK_FORMAT_BC1_RGBA_SRGB_BLOCK,
-				VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-				VK_IMAGE_ASPECT_COLOR_BIT, "Bc1Image"
+
+		var combiner = new MemoryCombiner(boiler, "PersistentMemory");
+		var stagingCombiner = new MemoryCombiner(boiler, "CompressionMemory");
+		var bc1Compressor = new Bc1Compressor(boiler, stagingCombiner, stagingCombiner);
+		var bc1Worker = new Bc1Worker(
+				bc1Compressor, sourceImage.getWidth() * sourceImage.getHeight(), stagingCombiner
 		);
-		var originalImage = boiler.images.createSimple(
-				sourceImage.getWidth(), sourceImage.getHeight(), VK_FORMAT_R8G8B8A8_SRGB,
-				VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-				VK_IMAGE_ASPECT_COLOR_BIT, "OriginalImage"
-		);
-		var sourceBuffer = boiler.buffers.createMapped(
+
+		var bc1Image = combiner.addImage(new ImageBuilder(
+				"Bc1Image", sourceImage.getWidth(), sourceImage.getHeight()
+		).texture().format(VK_FORMAT_BC1_RGBA_SRGB_BLOCK));
+		var originalImage = combiner.addImage(new ImageBuilder(
+				"OriginalImage", sourceImage.getWidth(), sourceImage.getHeight()
+		).texture());
+		var sourceBuffer = stagingCombiner.addMappedBuffer(
 				4L * sourceImage.getWidth() * sourceImage.getHeight(),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-				"Bc1Source"
+				boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
 		);
-		boiler.buffers.encodeBufferedImageRGBA(sourceBuffer, sourceImage, 0);
+		var stagingMemory = stagingCombiner.build(false);
+
+		sourceBuffer.encodeBufferedImage(sourceImage);
 		var kimCompressor = new Kim1Compressor(
-				sourceBuffer.fullMappedRange().byteBuffer(), sourceImage.getWidth(), sourceImage.getHeight(), 4
+				sourceBuffer.byteBuffer(), sourceImage.getWidth(), sourceImage.getHeight(), 4
 		);
-		var kimBuffer = boiler.buffers.createMapped(
-				4L * kimCompressor.intSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "Kim1Buffer"
+		var kimBuffer = combiner.addMappedDeviceLocalBuffer(
+				4L * kimCompressor.intSize,
+				boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
 		);
-		kimCompressor.compress(kimBuffer.fullMappedRange().byteBuffer());
+
+		var memory = combiner.build(false);
+		kimCompressor.compress(kimBuffer.byteBuffer());
+
+		var descriptorCombiner = new DescriptorCombiner(boiler);
+		var descriptorSet = descriptorCombiner.addMultiple(bc1Compressor.descriptorSetLayout, 1);
+		var descriptorPool = descriptorCombiner.build("CompressionDescriptors");
 
 		var commands = new SingleTimeCommands(boiler);
 		commands.submit("Bc1Upload", recorder -> {
 			recorder.transitionLayout(originalImage, null, ResourceUsage.TRANSFER_DEST);
 			recorder.transitionLayout(bc1Image, null, ResourceUsage.TRANSFER_DEST);
 
-			recorder.copyBufferToImage(originalImage, sourceBuffer.fullRange());
-			bc1Worker.compress(recorder, bc1CompressorDescriptorSet, sourceBuffer.fullRange(), bc1Image);
+			recorder.copyBufferToImage(originalImage, sourceBuffer);
+			bc1Worker.compress(recorder, descriptorSet[0], sourceBuffer, bc1Image);
 
 			recorder.transitionLayout(
 					originalImage, ResourceUsage.TRANSFER_DEST,
@@ -92,15 +106,15 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		});
 		commands.destroy();
 
-		sourceBuffer.destroy(boiler);
-		bc1Worker.destroy();
-		bc1Compressor.descriptorBank.returnDescriptorSet(bc1CompressorDescriptorSet);
-		bc1Compressor.destroy(true);
+		stagingMemory.destroy(boiler);
+		bc1Compressor.destroy();
+		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
 
 		var eventLoop = new WindowEventLoop();
 		eventLoop.addWindow(new ManualTesting(boiler.window(), originalImage, bc1Image, kimBuffer));
 		eventLoop.runMain();
 
+		memory.destroy(boiler);
 		boiler.destroyInitialObjects();
 	}
 
@@ -118,8 +132,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 	private final VkbBuffer kimBuffer;
 	private long sampler;
 	private VkbDescriptorSetLayout descriptorSetLayout, kimDescriptorSetLayout;
-	private HomogeneousDescriptorPool descriptorPool, kimDescriptorPool;
-	private long descriptorSet, kimDescriptorSet;
+	private long descriptorPool, descriptorSet, kimDescriptorSet;
 	private long pipelineLayout, kimPipelineLayout, graphicsPipeline, kimPipeline;
 
 	@SuppressWarnings("resource")
@@ -132,39 +145,33 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 				VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, "Sampler"
 		);
 
-		var bindings = VkDescriptorSetLayoutBinding.calloc(2, stack);
-		boiler.descriptors.binding(bindings, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
-		bindings.get(0).descriptorCount(2);
-		boiler.descriptors.binding(bindings, 1, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		var builder = new DescriptorSetLayoutBuilder(stack, 2);
+		builder.set(0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
+		Objects.requireNonNull(builder.ciLayout.pBindings()).get(0).descriptorCount(2);
+		builder.set(1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		this.descriptorSetLayout = builder.build(boiler, "DrawingDescriptorSetLayout");
 
-		this.descriptorSetLayout = boiler.descriptors.createLayout(stack, bindings, "DrawingDescriptorSetLayout");
-		this.descriptorPool = descriptorSetLayout.createPool(1, 0, "ImagesPool");
-		this.descriptorSet = descriptorPool.allocate(1)[0];
+		var combiner = new DescriptorCombiner(boiler);
+		combiner.addSingle(this.descriptorSetLayout, set -> this.descriptorSet = set);
 
-		var kimBindings = VkDescriptorSetLayoutBinding.calloc(1, stack);
-		boiler.descriptors.binding(kimBindings, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		builder = new DescriptorSetLayoutBuilder(stack, 1);
+		builder.set(0, 0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT);
+		this.kimDescriptorSetLayout = builder.build(boiler, "KimDescriptorSetLayout");
 
-		this.kimDescriptorSetLayout = boiler.descriptors.createLayout(stack, kimBindings, "KimDescriptorSetLayout");
-		this.kimDescriptorPool = kimDescriptorSetLayout.createPool(1, 0, "KimPool");
-		this.kimDescriptorSet = kimDescriptorPool.allocate(1)[0];
+		combiner.addSingle(this.kimDescriptorSetLayout, set -> this.kimDescriptorSet = set);
+		this.descriptorPool = combiner.build("PersistentDescriptors");
 
-		var writeImages = VkDescriptorImageInfo.calloc(2, stack);
-		for (int index = 0; index < 2; index++) {
-			writeImages.get(index).imageLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		}
-		writeImages.get(0).imageView(originalImage.vkImageView());
-		writeImages.get(1).imageView(bc1Image.vkImageView());
+		var imageInfo = VkDescriptorImageInfo.calloc(2, stack);
+		imageInfo.get(0).set(VK_NULL_HANDLE, originalImage.vkImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		imageInfo.get(1).set(VK_NULL_HANDLE, bc1Image.vkImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		var writeSamplers = VkDescriptorImageInfo.calloc(1, stack);
-		writeSamplers.sampler(sampler);
-
-		var descriptorWrites = VkWriteDescriptorSet.calloc(3, stack);
-		boiler.descriptors.writeImage(descriptorWrites, descriptorSet, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, writeImages);
-		boiler.descriptors.writeImage(descriptorWrites, descriptorSet, 1, VK_DESCRIPTOR_TYPE_SAMPLER, writeSamplers);
-		boiler.descriptors.writeBuffer(stack, descriptorWrites, kimDescriptorSet, 2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kimBuffer.fullRange());
-		descriptorWrites.get(2).dstBinding(0);
-
-		vkUpdateDescriptorSets(boiler.vkDevice(), descriptorWrites, null);
+		var updater = new DescriptorUpdater(stack, 3);
+		updater.write(0, descriptorSet, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+		updater.descriptorWrites.get(0).pImageInfo(imageInfo);
+		updater.descriptorWrites.get(0).descriptorCount(2);
+		updater.writeSampler(1, descriptorSet, 1, sampler);
+		updater.writeStorageBuffer(2, kimDescriptorSet, 0, kimBuffer);
+		updater.update(boiler);
 
 		var pushConstants = VkPushConstantRange.calloc(2, stack);
 		var vertexPushConstants = pushConstants.get(0);
@@ -189,9 +196,8 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 	private long buildCorePipeline(BoilerInstance boiler, MemoryStack stack) {
 		var builder = new GraphicsPipelineBuilder(boiler, stack);
 		builder.simpleShaderStages(
-				"ShowcasePipeline",
-				"com/github/knokko/compressor/showcase.vert.spv",
-				"com/github/knokko/compressor/showcase.frag.spv"
+				"ShowcasePipeline", "com/github/knokko/compressor/",
+				"showcase.vert.spv", "showcase.frag.spv"
 		);
 		builder.noVertexInput();
 		builder.simpleInputAssembly();
@@ -220,7 +226,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 
 		var specializationInfo = VkSpecializationInfo.calloc(stack);
 		specializationInfo.pMapEntries(specializationMappings);
-		specializationInfo.pData(stack.calloc(4).putInt(0, toIntExact(kimBuffer.size() / 4)));
+		specializationInfo.pData(stack.calloc(4).putInt(0, toIntExact(kimBuffer.size / 4)));
 
 		var builder = new GraphicsPipelineBuilder(boiler, stack);
 		builder.shaderStages(
@@ -249,7 +255,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 	protected void recordFrame(MemoryStack stack, int frameIndex, CommandRecorder recorder, AcquiredImage acquiredImage, BoilerInstance instance) {
 		var colorAttachments = VkRenderingAttachmentInfo.calloc(1, stack);
 		recorder.simpleColorRenderingAttachment(
-				colorAttachments.get(0), acquiredImage.image().vkImageView(),
+				colorAttachments.get(0), acquiredImage.image().vkImageView,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				0.2f, 0.5f, 0.7f, 1f
 		);
@@ -290,17 +296,13 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 	@Override
 	protected void cleanUp(BoilerInstance boiler) {
 		super.cleanUp(boiler);
-		descriptorPool.destroy();
-		kimDescriptorPool.destroy();
-		descriptorSetLayout.destroy();
-		kimDescriptorSetLayout.destroy();
+		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
+		vkDestroyDescriptorSetLayout(boiler.vkDevice(), descriptorSetLayout.vkDescriptorSetLayout, null);
+		vkDestroyDescriptorSetLayout(boiler.vkDevice(), kimDescriptorSetLayout.vkDescriptorSetLayout, null);
 		vkDestroySampler(boiler.vkDevice(), sampler, null);
 		vkDestroyPipeline(boiler.vkDevice(), graphicsPipeline, null);
 		vkDestroyPipeline(boiler.vkDevice(), kimPipeline, null);
 		vkDestroyPipelineLayout(boiler.vkDevice(), pipelineLayout, null);
 		vkDestroyPipelineLayout(boiler.vkDevice(), kimPipelineLayout, null);
-		originalImage.destroy(boiler);
-		bc1Image.destroy(boiler);
-		kimBuffer.destroy(boiler);
 	}
 }
