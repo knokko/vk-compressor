@@ -1,19 +1,20 @@
 package com.github.knokko.compressor;
 
 import com.github.knokko.boiler.BoilerInstance;
+import com.github.knokko.boiler.buffers.MappedVkbBuffer;
 import com.github.knokko.boiler.buffers.VkbBuffer;
 import com.github.knokko.boiler.commands.CommandRecorder;
-import com.github.knokko.boiler.descriptors.GrowingDescriptorBank;
+import com.github.knokko.boiler.descriptors.DescriptorSetLayoutBuilder;
 import com.github.knokko.boiler.descriptors.VkbDescriptorSetLayout;
+import com.github.knokko.boiler.memory.MemoryCombiner;
+import com.github.knokko.boiler.memory.callbacks.CallbackUserData;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
-import org.lwjgl.vulkan.VkDescriptorSetLayoutBinding;
 import org.lwjgl.vulkan.VkPushConstantRange;
 
 import java.io.IOException;
 import java.util.Objects;
 
 import static org.lwjgl.system.MemoryStack.stackPush;
-import static org.lwjgl.system.MemoryUtil.memByteBuffer;
 import static org.lwjgl.vulkan.VK10.*;
 
 /**
@@ -30,28 +31,23 @@ public class Bc1Compressor {
 	 */
 	public final VkbDescriptorSetLayout descriptorSetLayout;
 
-	/**
-	 * A <i>GrowingDescriptorBank</i> with <i>descriptorSetLayout</i>
-	 */
-	public final GrowingDescriptorBank descriptorBank;
 	final long pipelineLayout;
 	final long pipeline;
 	final VkbBuffer matchBuffer;
+	final MappedVkbBuffer stagingBuffer;
 
 	/**
 	 * Constructs a new <i>Bc1Compressor</i> using the given <i>BoilerInstance</i>. You should normally only need 1
 	 * <i>Bc1Compressor</i> instance.
 	 */
-	public Bc1Compressor(BoilerInstance boiler) {
+	public Bc1Compressor(BoilerInstance boiler, MemoryCombiner combiner, MemoryCombiner stagingCombiner) {
 		this.boiler = boiler;
 		try (var stack = stackPush()) {
-			var bindings = VkDescriptorSetLayoutBinding.calloc(3, stack);
+			var builder = new DescriptorSetLayoutBuilder(stack, 3);
 			for (int index = 0; index < 3; index++) {
-				boiler.descriptors.binding(bindings, index, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
+				builder.set(index, index, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
 			}
-			this.descriptorSetLayout = boiler.descriptors.createLayout(
-					stack, bindings, "Bc1CompressorDescriptorSetLayout"
-			);
+			this.descriptorSetLayout = builder.build(boiler, "Bc1CompressorDescriptorSetLayout");
 
 			var pushConstants = VkPushConstantRange.calloc(1, stack);
 			//noinspection resource
@@ -65,54 +61,47 @@ public class Bc1Compressor {
 					pipelineLayout, "com/github/knokko/compressor/betsy-bc1.spv", "Bc1Compressor"
 			);
 
-			this.descriptorBank = new GrowingDescriptorBank(descriptorSetLayout, 0);
-
-			var matchStagingBuffer = boiler.buffers.createMapped(
-					4096, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "Bc1CompressorMatchStaging"
-			);
-			this.matchBuffer = boiler.buffers.create(
-					4096, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-					"Bc1CompressorMatch"
+			this.stagingBuffer = stagingCombiner.addMappedBuffer(
+					4096, 1, VK_BUFFER_USAGE_TRANSFER_SRC_BIT
 			);
 
-			var hostBuffer = memByteBuffer(matchStagingBuffer.hostAddress(), (int) matchBuffer.size());
-			var matchInput = Bc1Compressor.class.getResourceAsStream("match.bin");
-			hostBuffer.put(Objects.requireNonNull(matchInput).readAllBytes());
-			matchInput.close();
-
-			var stagingPool = boiler.commands.createPool(0, boiler.queueFamilies().graphics().index(), "Bc1MatchStaging");
-			var stagingCommands = boiler.commands.createPrimaryBuffers(stagingPool, 1, "Bc1MatchStaging")[0];
-
-			var recorder = CommandRecorder.begin(stagingCommands, boiler, stack, "Bc1MatchStaging");
-			recorder.copyBuffer(matchStagingBuffer.fullRange(), matchBuffer.vkBuffer(), 0);
-			recorder.bufferBarrier(
-					matchBuffer.fullRange(), ResourceUsage.TRANSFER_DEST,
-					ResourceUsage.computeBuffer(VK_ACCESS_SHADER_READ_BIT)
+			long alignment = boiler.deviceProperties.limits().minStorageBufferOffsetAlignment();
+			this.matchBuffer = combiner.addBuffer(
+					4096, alignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
 			);
-			recorder.end();
-
-			var fence = boiler.sync.fenceBank.borrowFence(false, "Bc1MatchFence");
-			boiler.queueFamilies().graphics().first().submit(stagingCommands, "Bc1Match", null, fence);
-			fence.awaitSignal();
-			boiler.sync.fenceBank.returnFence(fence);
-
-			vkDestroyCommandPool(boiler.vkDevice(), stagingPool, null);
-			matchStagingBuffer.destroy(boiler);
-		} catch (IOException e) {
-			throw new RuntimeException("Failed to read match.bin", e);
 		}
 	}
 
+	public void performStagingTransfer(CommandRecorder recorder) {
+		try {
+			var matchInput = Bc1Compressor.class.getResourceAsStream("match.bin");
+			stagingBuffer.byteBuffer().put(Objects.requireNonNull(matchInput).readAllBytes());
+			matchInput.close();
+		} catch (IOException shouldNotHappen) {
+			throw new Error(shouldNotHappen);
+		}
+
+		recorder.copyBuffer(stagingBuffer, matchBuffer);
+		recorder.bufferBarrier(
+				matchBuffer, ResourceUsage.TRANSFER_DEST,
+				ResourceUsage.computeBuffer(VK_ACCESS_SHADER_READ_BIT)
+		);
+	}
+
 	/**
-	 * Destroys this <i>Bc1Compressor</i>. You need to destroy all <i>Bc1Worker</i>s first.
-	 * @param checkDescriptorBorrows Whether an exception should be thrown if you didn't return all descriptor sets
-	 *                               borrowed from <i>descriptorBank</i>
+	 * Destroys this <i>Bc1Compressor</i>
 	 */
-	public void destroy(boolean checkDescriptorBorrows) {
-		matchBuffer.destroy(boiler);
-		vkDestroyPipeline(boiler.vkDevice(), pipeline, null);
-		descriptorBank.destroy(checkDescriptorBorrows);
-		descriptorSetLayout.destroy();
-		vkDestroyPipelineLayout(boiler.vkDevice(), pipelineLayout, null);
+	public void destroy() {
+		try (var stack = stackPush()) {
+			vkDestroyPipeline(boiler.vkDevice(), pipeline, CallbackUserData.PIPELINE.put(stack, boiler));
+			vkDestroyDescriptorSetLayout(
+					boiler.vkDevice(), descriptorSetLayout.vkDescriptorSetLayout,
+					CallbackUserData.DESCRIPTOR_SET_LAYOUT.put(stack, boiler)
+			);
+			vkDestroyPipelineLayout(
+					boiler.vkDevice(), pipelineLayout,
+					CallbackUserData.PIPELINE_LAYOUT.put(stack, boiler)
+			);
+		}
 	}
 }
