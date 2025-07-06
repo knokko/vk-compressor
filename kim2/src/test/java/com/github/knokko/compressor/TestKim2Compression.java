@@ -215,16 +215,19 @@ public class TestKim2Compression {
 		var combiner = new MemoryCombiner(boiler, "Kim2Compression");
 		var compressed = combiner.addMappedDeviceLocalBuffer(
 				compressedSize, boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 		);
 		var recovered = combiner.addMappedBuffer(
 				16L * input.getWidth() * input.getHeight(),
 				4L, VK_BUFFER_USAGE_TRANSFER_DST_BIT
 		);
-		var vertices = combiner.addMappedDeviceLocalBuffer(48L, 8L, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+		var vertices = combiner.addMappedDeviceLocalBuffer(
+				48L, 8L, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 0.5f
+		);
 		var targetImage = combiner.addImage(new ImageBuilder(
 				"Kim2TargetImage", 2 * input.getWidth(), 2 * input.getHeight()
-		).format(VK_FORMAT_R8G8B8A8_SRGB).setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT));
+		).format(VK_FORMAT_R8G8B8A8_SRGB)
+				.setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT), 1f);
 		var memory = combiner.build(false);
 
 		var compressedHost = compressed.intBuffer();

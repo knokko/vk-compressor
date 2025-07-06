@@ -150,7 +150,7 @@ public class TestKim1Compression {
 		var targetImage = combiner.addImage(new ImageBuilder(
 				"TargetImage", 200, 200
 		).format(VK_FORMAT_R8G8B8A8_SRGB)
-				.setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT));
+				.setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT), 1f);
 		var resultBuffer = combiner.addMappedBuffer(
 				4L * targetImage.width * targetImage.height,
 				4, VK_BUFFER_USAGE_TRANSFER_DST_BIT
@@ -170,11 +170,11 @@ public class TestKim1Compression {
 		}
 		var compressedImages = combiner.addMappedDeviceLocalBuffer(
 				4L * nextSpriteOffset, boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 		);
 
 		var vertexBuffer = combiner.addMappedDeviceLocalBuffer(
-				20L * files.length, 8, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+				20L * files.length, 8, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, 0.5f
 		);
 
 		var memory = combiner.build(false);

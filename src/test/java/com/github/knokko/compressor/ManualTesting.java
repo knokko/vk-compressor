@@ -41,7 +41,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "HelloCompressor", 1
 		)
-				.validation()
+				.validation().forbidValidationErrors()
 				.enableDynamicRendering()
 				.addWindow(new WindowBuilder(800, 500, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
 				.requiredFeatures10("BC compression", VkPhysicalDeviceFeatures::textureCompressionBC)
@@ -59,10 +59,10 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 
 		var bc1Image = combiner.addImage(new ImageBuilder(
 				"Bc1Image", sourceImage.getWidth(), sourceImage.getHeight()
-		).texture().format(VK_FORMAT_BC1_RGBA_SRGB_BLOCK));
+		).texture().format(VK_FORMAT_BC1_RGBA_SRGB_BLOCK), 0.5f);
 		var originalImage = combiner.addImage(new ImageBuilder(
 				"OriginalImage", sourceImage.getWidth(), sourceImage.getHeight()
-		).texture());
+		).texture(), 0.5f);
 		var sourceBuffer = stagingCombiner.addMappedBuffer(
 				4L * sourceImage.getWidth() * sourceImage.getHeight(),
 				boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
@@ -77,7 +77,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		var kimBuffer = combiner.addMappedDeviceLocalBuffer(
 				4L * kimCompressor.intSize,
 				boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 		);
 
 		var memory = combiner.build(false);
@@ -89,6 +89,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 
 		var commands = new SingleTimeCommands(boiler);
 		commands.submit("Bc1Upload", recorder -> {
+			bc1Compressor.performStagingTransfer(recorder);
 			recorder.transitionLayout(originalImage, null, ResourceUsage.TRANSFER_DEST);
 			recorder.transitionLayout(bc1Image, null, ResourceUsage.TRANSFER_DEST);
 

@@ -136,11 +136,11 @@ public class TestBc1Compression {
 			var image = sourceImages[index];
 			sourceBuffers[index] = combiner.addMappedDeviceLocalBuffer(
 					4L * image.getWidth() * image.getHeight(),
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 			);
 			destinationBuffers[index] = combiner.addMappedDeviceLocalBuffer(
 					(long) image.getWidth() * image.getHeight() / 2,
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 			);
 		}
 
@@ -217,11 +217,11 @@ public class TestBc1Compression {
 			var image = sourceImages[index];
 			sourceBuffers[index] = combiner.addMappedDeviceLocalBuffer(
 					4L * image.getWidth() * image.getHeight(),
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 			);
 			destinationBuffers[index] = combiner.addMappedDeviceLocalBuffer(
 					(long) image.getWidth() * image.getHeight() / 2,
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 			);
 		}
 

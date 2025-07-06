@@ -28,7 +28,7 @@ public class Bc1Worker {
 			long alignment = nextMultipleOf(8, compressor.boiler.deviceProperties.limits().minStorageBufferOffsetAlignment());
 			this.transferBuffer = combiner.addBuffer(
 					maxDestinationImagePixels / 2L, alignment,
-					VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+					VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 			);
 		} else this.transferBuffer = null;
 	}

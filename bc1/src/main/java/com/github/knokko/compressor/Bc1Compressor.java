@@ -68,7 +68,8 @@ public class Bc1Compressor {
 
 			long alignment = boiler.deviceProperties.limits().minStorageBufferOffsetAlignment();
 			this.matchBuffer = combiner.addBuffer(
-					4096, alignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+					4096, alignment,
+					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 1f
 			);
 		}
 	}
