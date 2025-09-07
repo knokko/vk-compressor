@@ -1,0 +1,117 @@
+/*
+ * This compute shader is a modified version of bc4.glsl from the Betsy GPU compressor, ripped from
+ * https://github.com/darksylinc/betsy/blob/master/bin/Data/bc4.glsl
+ * A copy of the betsy license can be found at betsy-licence.md in this folder.
+ *
+ * I (knokko) modified this file to make it compatible with Vulkan. Furthermore, I removed quite some unused
+ * #define's, and refactored it such that it uses e.g. vec2 instead of float2.
+ */
+#version 430 core
+
+layout(std430, binding = 0) readonly restrict buffer SourceBuffer
+{
+	uint sourceBuffer[];
+};
+
+layout(std430, binding = 1) writeonly restrict buffer DestBuffer {
+	uint destBuffer[];
+};
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+	bool bigEndian;
+	uint sourceWidth;
+	uint sourceHeight;
+};
+
+#include "../../../../../../../../reverse-bytes.glsl"
+
+void main()
+{
+	uint numBlocksX = sourceWidth / 4;
+	uint numBlocksY = sourceHeight / 4;
+	uvec4 rows[4];
+
+	const uint blockX = gl_GlobalInvocationID.x;
+	const uint blockY = gl_GlobalInvocationID.y;
+
+	if (blockX >= numBlocksX || blockY >= numBlocksY) return;
+
+	for (uint offsetY = 0; offsetY < 4; offsetY++) {
+		uint rawSourcePixels = sourceBuffer[blockX + numBlocksX * (4 * blockY + offsetY)];
+		if (bigEndian) rawSourcePixels = revertBytes(rawSourcePixels);
+		rows[offsetY][0] = rawSourcePixels & 255;
+		rows[offsetY][1] = (rawSourcePixels >> 8) & 255;
+		rows[offsetY][2] = (rawSourcePixels >> 16) & 255;
+		rows[offsetY][3] = (rawSourcePixels >> 24) & 255;
+	}
+
+	uint rowsMin[4];
+	uint rowsMax[4];
+	for (uint offsetY = 0; offsetY < 4; offsetY++) {
+		rowsMin[offsetY] = min(min(rows[offsetY][0], rows[offsetY][1]), min(rows[offsetY][2], rows[offsetY][3]));
+    	rowsMax[offsetY] = max(max(rows[offsetY][0], rows[offsetY][1]), max(rows[offsetY][2], rows[offsetY][3]));
+	}
+	uint minVal = min(min(rowsMin[0], rowsMin[1]), min(rowsMin[2], rowsMin[3]));
+	uint maxVal = max(max(rowsMax[0], rowsMax[1]), max(rowsMax[2], rowsMax[3]));
+
+	// determine bias and emit color indices
+	// given the choice of maxVal/minVal, these indices are optimal:
+	// http://fgiesen.wordpress.com/2009/12/15/dxt5-alpha-block-index-determination/
+	float dist = maxVal - minVal;
+	float dist4 = dist * 4.0f;
+	float dist2 = dist * 2.0f;
+	float bias = ( dist < 8 ) ? ( dist - 1 ) : ( trunc( dist * 0.5f ) + 2 );
+	bias -= minVal * 7;
+
+	uint mask0 = maxVal | (minVal << 8);
+	uint mask1 = 0;
+
+	for (uint offsetY = 0; offsetY < 4; offsetY++) {
+		for (uint offsetX = 0; offsetX < 4; offsetX++) {
+			float a = 7.0 * rows[offsetY][offsetX] + bias;
+			int ind = 0;
+
+			// select index. this is a "linear scale" lerp factor between 0 (val=min) and 7 (val=max).
+			if( a >= dist4 )
+			{
+				ind = 4;
+				a -= dist4;
+			}
+
+			if( a >= dist2 )
+			{
+				ind += 2;
+				a -= dist2;
+			}
+
+			if( a >= dist )
+				ind += 1;
+
+			// turn linear scale into DXT index (0/1 are extremal pts)
+			ind = -ind & 7;
+			ind ^= ( 2 > ind ) ? 1 : 0;
+
+			// write index
+			const uint bitOffset = 16u + (offsetX + 4 * offsetY) * 3u;
+			if(bitOffset < 32u) {
+				mask0 |= uint(ind) << bitOffset;
+				if(bitOffset + 3u > 32u) {
+					mask1 |= uint(ind) >> (32u - bitOffset);
+				}
+			} else {
+				mask1 |= uint(ind) << (bitOffset - 32u);
+			}
+		}
+	}
+
+	// Save data
+	uint destIndex = 2 * (blockX + numBlocksX * blockY);
+	if (bigEndian) {
+		mask0 = revertBytes(mask0);
+		mask1 = revertBytes(mask1);
+	}
+	destBuffer[destIndex] = mask0;
+	destBuffer[destIndex + 1] = mask1;
+}

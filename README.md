@@ -3,6 +3,7 @@
 This library provides methods and classes to deal with some
 compressed (Vulkan) image formats. Currently, it provides:
 - a [BC1 image compressor](bc1/docs.md) using a compute shader
+- a [BC4 image compressor](bc4/docs.md) using a compute shader
 - a [wrapper of a BC7 image compressor](bc7/docs.md)
 - a ['kim1' image compressor](kim1/docs.md), decompressor, and sampler.
 The 'kim1' format is a format that I invented for small images
@@ -13,7 +14,7 @@ each pixel has approximately the same color,
 but with a possibly different intensity.
 
 This library requires
-[vk-boiler 4.2](https://github.com/knokko/vk-boiler).
+[vk-boiler 5.0](https://github.com/knokko/vk-boiler).
 
 ### Performance
 From my rough measurements (on my PC):
@@ -42,8 +43,8 @@ LWJGL and `vk-boiler` you want to use (as long as they
 are compatible).
 
 #### Modules
-This project is split into 4 gradle modules: 1 for each
-compression format: `kim1`, `kim2`, `bc1`, and `bc7`. You
+This project is split into 5 gradle modules: 1 for each
+compression format: `kim1`, `kim2`, `bc1`, `bc4`, and `bc7`. You
 should add the ones you need. The `Gradle` and `Maven`
 examples below add just 1 of the modules. You need 1 line
 for each module you want.

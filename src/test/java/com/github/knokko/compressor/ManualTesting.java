@@ -25,7 +25,9 @@ import org.lwjgl.vulkan.*;
 
 import javax.imageio.ImageIO;
 
+import java.awt.*;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.Objects;
@@ -53,26 +55,45 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		var combiner = new MemoryCombiner(boiler, "PersistentMemory");
 		var stagingCombiner = new MemoryCombiner(boiler, "CompressionMemory");
 		var bc1Compressor = new Bc1Compressor(boiler, stagingCombiner, stagingCombiner);
+		var bc4Compressor = new Bc4Compressor(boiler);
 		var bc1Worker = new Bc1Worker(
 				bc1Compressor, sourceImage.getWidth() * sourceImage.getHeight(), stagingCombiner
+		);
+		var bc4Worker = new Bc4Worker(
+				bc4Compressor, sourceImage.getWidth() * sourceImage.getHeight(), stagingCombiner
 		);
 
 		var bc1Image = combiner.addImage(new ImageBuilder(
 				"Bc1Image", sourceImage.getWidth(), sourceImage.getHeight()
 		).texture().format(VK_FORMAT_BC1_RGBA_SRGB_BLOCK), 0.5f);
+		var bc4Image = combiner.addImage(new ImageBuilder(
+				"Bc4Image", sourceImage.getWidth(), sourceImage.getHeight()
+		).texture().format(VK_FORMAT_BC4_UNORM_BLOCK), 0.5f);
 		var originalImage = combiner.addImage(new ImageBuilder(
 				"OriginalImage", sourceImage.getWidth(), sourceImage.getHeight()
 		).texture(), 0.5f);
-		var sourceBuffer = stagingCombiner.addMappedBuffer(
+		var sourceBufferBc1 = stagingCombiner.addMappedBuffer(
 				4L * sourceImage.getWidth() * sourceImage.getHeight(),
+				boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+		);
+		var sourceBufferBc4 = stagingCombiner.addMappedBuffer(
+				(long) sourceImage.getWidth() * sourceImage.getHeight(),
 				boiler.deviceProperties.limits().minStorageBufferOffsetAlignment(),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT
 		);
 		var stagingMemory = stagingCombiner.build(false);
 
-		sourceBuffer.encodeBufferedImage(sourceImage);
+		sourceBufferBc1.encodeBufferedImage(sourceImage);
+		ByteBuffer byteBufferBc4 = sourceBufferBc4.byteBuffer();
+		for (int y = 0; y < sourceImage.getHeight(); y++) {
+			for (int x = 0; x < sourceImage.getWidth(); x++) {
+				Color pixel = new Color(sourceImage.getRGB(x, y));
+				byteBufferBc4.put((byte) ((pixel.getRed() + pixel.getGreen() + pixel.getBlue()) / 3));
+			}
+		}
 		var kimCompressor = new Kim1Compressor(
-				sourceBuffer.byteBuffer(), sourceImage.getWidth(), sourceImage.getHeight(), 4
+				sourceBufferBc1.byteBuffer(), sourceImage.getWidth(), sourceImage.getHeight(), 4
 		);
 		var kimBuffer = combiner.addMappedDeviceLocalBuffer(
 				4L * kimCompressor.intSize,
@@ -84,52 +105,52 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		kimCompressor.compress(kimBuffer.byteBuffer());
 
 		var descriptorCombiner = new DescriptorCombiner(boiler);
-		var descriptorSet = descriptorCombiner.addMultiple(bc1Compressor.descriptorSetLayout, 1);
+		var descriptorSetBc1 = descriptorCombiner.addMultiple(bc1Compressor.descriptorSetLayout, 1);
+		var descriptorSetBc4 = descriptorCombiner.addMultiple(bc4Compressor.descriptorSetLayout, 1);
 		var descriptorPool = descriptorCombiner.build("CompressionDescriptors");
 
 		var commands = new SingleTimeCommands(boiler);
-		commands.submit("Bc1Upload", recorder -> {
+		commands.submit("Bc1/4Upload", recorder -> {
 			bc1Compressor.performStagingTransfer(recorder);
-			recorder.transitionLayout(originalImage, null, ResourceUsage.TRANSFER_DEST);
-			recorder.transitionLayout(bc1Image, null, ResourceUsage.TRANSFER_DEST);
+			recorder.bulkTransitionLayout(null, ResourceUsage.TRANSFER_DEST, originalImage, bc1Image, bc4Image);
 
-			recorder.copyBufferToImage(originalImage, sourceBuffer);
-			bc1Worker.compress(recorder, descriptorSet[0], sourceBuffer, bc1Image);
+			recorder.copyBufferToImage(originalImage, sourceBufferBc1);
+			bc1Worker.compress(recorder, descriptorSetBc1[0], sourceBufferBc1, bc1Image);
+			bc4Worker.compress(recorder, descriptorSetBc4[0], sourceBufferBc4, bc4Image);
 
-			recorder.transitionLayout(
-					originalImage, ResourceUsage.TRANSFER_DEST,
-					ResourceUsage.shaderRead(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
-			);
-			recorder.transitionLayout(
-					bc1Image, ResourceUsage.TRANSFER_DEST,
-					ResourceUsage.shaderRead(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+			recorder.bulkTransitionLayout(
+					ResourceUsage.TRANSFER_DEST,
+					ResourceUsage.shaderRead(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT),
+					originalImage, bc1Image, bc4Image
 			);
 		});
 		commands.destroy();
 
 		stagingMemory.destroy(boiler);
 		bc1Compressor.destroy();
+		bc4Compressor.destroy();
 		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
 
 		var eventLoop = new WindowEventLoop();
-		eventLoop.addWindow(new ManualTesting(boiler.window(), originalImage, bc1Image, kimBuffer));
+		eventLoop.addWindow(new ManualTesting(boiler.window(), originalImage, bc1Image, bc4Image, kimBuffer));
 		eventLoop.runMain();
 
 		memory.destroy(boiler);
 		boiler.destroyInitialObjects();
 	}
 
-	ManualTesting(VkbWindow window, VkbImage originalImage, VkbImage bc1Image, VkbBuffer kimBuffer) {
+	ManualTesting(VkbWindow window, VkbImage originalImage, VkbImage bc1Image, VkbImage bc4Image, VkbBuffer kimBuffer) {
 		super(
 				window, 1, true, VK_PRESENT_MODE_FIFO_KHR,
 				ResourceUsage.COLOR_ATTACHMENT_WRITE, ResourceUsage.COLOR_ATTACHMENT_WRITE
 		);
 		this.originalImage = originalImage;
 		this.bc1Image = bc1Image;
+		this.bc4Image = bc4Image;
 		this.kimBuffer = kimBuffer;
 	}
 
-	private final VkbImage originalImage, bc1Image;
+	private final VkbImage originalImage, bc1Image, bc4Image;
 	private final VkbBuffer kimBuffer;
 	private long sampler;
 	private VkbDescriptorSetLayout descriptorSetLayout, kimDescriptorSetLayout;
@@ -148,7 +169,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 
 		var builder = new DescriptorSetLayoutBuilder(stack, 2);
 		builder.set(0, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT);
-		Objects.requireNonNull(builder.ciLayout.pBindings()).get(0).descriptorCount(2);
+		Objects.requireNonNull(builder.ciLayout.pBindings()).get(0).descriptorCount(3);
 		builder.set(1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT);
 		this.descriptorSetLayout = builder.build(boiler, "DrawingDescriptorSetLayout");
 
@@ -162,14 +183,15 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		combiner.addSingle(this.kimDescriptorSetLayout, set -> this.kimDescriptorSet = set);
 		this.descriptorPool = combiner.build("PersistentDescriptors");
 
-		var imageInfo = VkDescriptorImageInfo.calloc(2, stack);
+		var imageInfo = VkDescriptorImageInfo.calloc(3, stack);
 		imageInfo.get(0).set(VK_NULL_HANDLE, originalImage.vkImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		imageInfo.get(1).set(VK_NULL_HANDLE, bc1Image.vkImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		imageInfo.get(2).set(VK_NULL_HANDLE, bc4Image.vkImageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 		var updater = new DescriptorUpdater(stack, 3);
 		updater.write(0, descriptorSet, 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
 		updater.descriptorWrites.get(0).pImageInfo(imageInfo);
-		updater.descriptorWrites.get(0).descriptorCount(2);
+		updater.descriptorWrites.get(0).descriptorCount(3);
 		updater.writeSampler(1, descriptorSet, 1, sampler);
 		updater.writeStorageBuffer(2, kimDescriptorSet, 0, kimBuffer);
 		updater.update(boiler);
@@ -273,6 +295,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		var fragmentPushConstants = stack.callocInt(1);
 		drawQuad(recorder.commandBuffer, vertexPushConstants, fragmentPushConstants, -0.9f, -0.9f, 0, pipelineLayout);
 		drawQuad(recorder.commandBuffer, vertexPushConstants, fragmentPushConstants, 0.1f, -0.9f, 1, pipelineLayout);
+		drawQuad(recorder.commandBuffer, vertexPushConstants, fragmentPushConstants, -0.9f, 0.1f, 2, pipelineLayout);
 
 		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kimPipeline);
 		recorder.bindGraphicsDescriptors(kimPipelineLayout, kimDescriptorSet);

@@ -78,4 +78,5 @@ dependencies {
 
 	testImplementation project(":kim1")
 	testImplementation project(":bc1")
+	testImplementation project(":bc4")
 }
