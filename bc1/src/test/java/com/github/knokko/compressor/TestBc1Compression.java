@@ -171,7 +171,10 @@ public class TestBc1Compression {
 						destinationBuffers[index], image.getWidth(), image.getHeight()
 				);
 			}
-
+			recorder.bulkBufferBarrier(
+					ResourceUsage.computeBuffer(VK_ACCESS_SHADER_WRITE_BIT),
+					ResourceUsage.HOST_READ, destinationBuffers
+			);
 		});
 		long submissionTime = System.nanoTime();
 		commands.destroy();
@@ -261,7 +264,7 @@ public class TestBc1Compression {
 						image.getWidth(), image.getHeight()
 				);
 				var computeUsage = ResourceUsage.computeBuffer(VK_ACCESS_SHADER_WRITE_BIT);
-				recorder.bufferBarrier(destinationBuffer, computeUsage, computeUsage);
+				recorder.bufferBarrier(destinationBuffer, computeUsage, ResourceUsage.HOST_READ);
 			}).awaitCompletion();
 			File destinationFile = new File(destinationFolder + "/" + files[index].getName());
 			var outputBuffer = destinationBuffer.byteBuffer();
