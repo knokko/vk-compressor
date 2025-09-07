@@ -13,6 +13,7 @@
 #define FLT_MAX 340282346638528859811704183484516925440.0f
 
 layout(push_constant) uniform Refinements {
+	bool bigEndian;
 	uint p_numRefinements;
 	uint width;
 };
@@ -431,6 +432,8 @@ void DitherBlock( const uint srcPixBlck[16], out uint dthPixBlck[16] )
 }
 	#endif
 
+#include "../../../../../../../../reverse-bytes.glsl"
+
 void main()
 {
 	uint srcPixelsBlock[16];
@@ -539,6 +542,12 @@ void main()
 	uint outputBlocksPerRow = width / 4;
 	uint outputBlockSize = 8 / 4; // 8 bytes per block and 1 uint is 4 bytes
 	uint outputIndex = outputBlockSize * (dstUV.x + outputBlocksPerRow * dstUV.y);
-	destBuffer[outputIndex] = uint(maxEndp16) | (uint(minEndp16) << 16u);
+
+	uint minMax = uint(maxEndp16) | (uint(minEndp16) << 16u);
+	if (bigEndian) {
+		minMax = revertBytes(minMax);
+		mask = revertBytes(mask);
+	}
+	destBuffer[outputIndex] = minMax;
 	destBuffer[outputIndex + 1] = mask;
 }

@@ -52,7 +52,7 @@ public class Bc1Compressor {
 
 			var pushConstants = VkPushConstantRange.calloc(1, stack);
 			//noinspection resource
-			pushConstants.get(0).set(VK_SHADER_STAGE_COMPUTE_BIT, 0, 8);
+			pushConstants.get(0).set(VK_SHADER_STAGE_COMPUTE_BIT, 0, 12);
 			this.pipelineLayout = boiler.pipelines.createLayout(
 					pushConstants, "Bc1CompressorPipelineLayout",
 					descriptorSetLayout.vkDescriptorSetLayout

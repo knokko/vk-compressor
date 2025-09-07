@@ -7,6 +7,8 @@ import com.github.knokko.boiler.images.VkbImage;
 import com.github.knokko.boiler.memory.MemoryCombiner;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
 
+import java.nio.ByteOrder;
+
 import static com.github.knokko.boiler.utilities.BoilerMath.nextMultipleOf;
 import static org.lwjgl.vulkan.VK10.*;
 
@@ -98,10 +100,10 @@ public class Bc1Worker {
 
 		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compressor.pipeline);
 		recorder.bindComputeDescriptors(compressor.pipelineLayout, descriptorSet);
-		//noinspection SuspiciousNameCombination
+		int bigEndian = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN ? VK_TRUE : VK_FALSE;
 		vkCmdPushConstants(
 				recorder.commandBuffer, compressor.pipelineLayout,
-				VK_SHADER_STAGE_COMPUTE_BIT, 0, recorder.stack.ints(2, width)
+				VK_SHADER_STAGE_COMPUTE_BIT, 0, recorder.stack.ints(bigEndian, 2, width)
 		);
 		vkCmdDispatch(recorder.commandBuffer, width / 4, height / 4, 1);
 	}
