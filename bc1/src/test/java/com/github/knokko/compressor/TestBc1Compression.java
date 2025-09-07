@@ -109,6 +109,13 @@ public class TestBc1Compression {
 				.defaultTimeout(10_000_000_000L)
 				.build();
 
+		// This commented out stuff is for benchmarking
+//		File[] rawFiles = new File("../test-helper/src/main/resources/com/github/knokko/compressor/larger").listFiles();
+//		assertNotNull(rawFiles);
+//		File[] files = Arrays.copyOf(rawFiles, 150 * rawFiles.length);
+//		for (int i = 1; i < 150; i++) {
+//			for (int j = 0; j < 3; j++) files[3 * i + j] = files[j];
+//		}
 		File[] files = new File("../test-helper/src/main/resources/com/github/knokko/compressor/mardek").listFiles();
 		assertNotNull(files);
 		BufferedImage[] sourceImages = new BufferedImage[files.length];

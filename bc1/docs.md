@@ -5,29 +5,61 @@ format supported by almost any *desktop* GPU.
 To use the BC1 compressor, create the `BoilerInstance`.
 Then, create an instance of `Bc1Compressor`:
 ```java
-var compressor = new Bc1Compressor(boilerInstance);
+var compressor = new Bc1Compressor(boilerInstance, memoryCombiner, stagingCombiner);
+```
+
+The `Bc1Compressor` needs to allocate some device memory, so it takes two `MemoryCombiner`s as parameters. If you don't
+want it to share its memory with anything else, you could simply use:
+```java
+var combiner = new MemoryCombiner(boiler, "CompressorMemory");
+var stagingCombiner = new MemoryCombiner(boiler, "CompressorStagingMemory");
+var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
+var memory = combiner.build(true);
+var stagingMemory = stagingCombiner.build(true);
+
+var commands = new SingleTimeCommands(boiler);
+commands.submit("StagingTransfer", compressor::performStagingTransfer).awaitCompletion();
+stagingMemory.destroy(boiler);
+
+// Now you can use `compressor`
 ```
 You only need 1 instance of `Bc1Compressor`
 (per `BoilerInstance`). Next, create 1 or more workers:
 ```java
-var worker = new Bc1Worker(compressor);
+var worker = new Bc1Worker(compressor, maxDestinationImagePixels, combiner);
+```
+If you want to put the compressed image data in a `VkImage`, you need to pick
+`maxDestinationImagePixels >= image.width * image.height` for any of your destination images.
+If you want to put the compressed image data in a `VkBuffer`, you can use `0`.
+The `combiner` is probably the same one that you use for the `Bc1Compressor`, but that is not required.
+Example code:
+```java
+var combiner = new MemoryCombiner(boiler, "CompressorMemory");
+var stagingCombiner = new MemoryCombiner(boiler, "CompressorStagingMemory");
+var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
+var worker = new Bc1Worker(compressor, 0, combiner);
+var memory = combiner.build(true);
+var stagingMemory = stagingCombiner.build(true);
+
+var commands = new SingleTimeCommands(boiler);
+commands.submit("StagingTransfer", compressor::performStagingTransfer).awaitCompletion();
+stagingMemory.destroy(boiler);
+
+// Now you can use `worker`
 ```
 You usually need just 1 instance of `Bc1Worker`, but
-having more of them allows you to do some more
-parallelism.
+having more of them allows you to do parallel recording.
 
 ## Descriptor sets
 Before you start, you need to allocate 1
-or more descriptor sets of the Bc1 layout. You can borrow
-them from the `descriptorBank` of your `Bc1Compressor`:
+or more descriptor sets of the Bc1 layout. You can access
+the layout using `compressor.descriptorSetLayout`.
 ```java
-var descriptorSet = compressor.descriptorBank.borrowDescriptorSet("Example");
-```
-Alternatively, you can use the `descriptorSetLayout` of
-your `Bc1Compressor` directly, for instance:
-```java
-var descriptorPool = compressor.descriptorSetLayout.createPool(1, 0, "Bc1Descriptors");
-var descriptorSet = descriptorPool.allocate(1)[0];
+var descriptorCombiner = new DescriptorCombiner(boiler);
+long[] descriptorSets = descriptorCombiner.addMultiple(compressor.descriptorSetLayout, 1);
+var descriptorPool = descriptorCombiner.build("CompressionDescriptors");
+
+long descriptorSet = descriptorSets[0];
 ```
 Finally, you need to call one of the `compress` methods of
 your `Bc1Worker` to record commands that will actually
@@ -38,14 +70,16 @@ Depending on the overload you choose,
 the result will either be stored in a buffer, or in an
 image.
 - To store the result in a buffer, call the
-  `compress(recorder, descriptorSet, sourceBufferRange, destinationBufferRange, width, height)`
+  `compress(recorder, descriptorSet, sourceBuffer, destinationBuffer, width, height)`
   overload.
 - To store the result in an image, call the
-  `compress(recorder, descriptorSet, sourceBufferRange, destinationImage)`
+  `compress(recorder, descriptorSet, sourceBuffer, destinationImage)`
   overload.
 
 In either case, you need to create some command pool +
-command buffer yourself, and let a `CommandRecorder`
+command buffer yourself
+(e.g. using `SingleTimeCommands.submit`),
+and let a `CommandRecorder`
 start recording, which is the first parameter you need to
 pass.
 
@@ -54,15 +88,15 @@ parameter. Since the `compress(...)` method will call
 `vkUpdateDescriptorSets`, you can't reuse the descriptor
 set until the command buffer has completed execution.
 
-The `sourceBufferRange` is the third parameter. This buffer
-range must contain the data of the image to be compressed,
+The `sourceBuffer` is the third parameter. This buffer
+must contain the data of the image to be compressed,
 in an RGBA format with 1 byte per component. Thus, the
-byte size of the range should be `4 * width * height`.
+byte size of the should be `4 * width * height`.
 
-In the first overload, the `destinationBufferRange` is
+In the first overload, the `destinationBuffer` is
 the fourth parameter. Once the command buffer has completed
 execution, the encoded image data will be stored in this
-buffer range. The byte size should be `width * height / 2`.
+buffer. The byte size should be `width * height / 2`.
 The `width` and `height` parameters are simply the width
 and height of the image to be compressed, in pixels.
 
@@ -83,7 +117,10 @@ won't submit or *end* the command buffer/recorder, so
 that's also up to you.
 
 ## Cleaning up
-Once you are done with a worker, call its `destroy()`
-method. If you are done with all compression, call the
-`destroy()` method on all workers, after which you should
-call the `destroy(true)` method of the `Bc1Compressor`.
+If you are done with all compression, call the
+`destroy()` method of the `Bc1Compressor`.
+
+## Credits
+The compressor uses a compute shader to compress images.
+This shader is a modified version of the BC1 compression shader of
+[Betsy](https://github.com/darksylinc/betsy/blob/master/bin/Data/bc1.glsl)

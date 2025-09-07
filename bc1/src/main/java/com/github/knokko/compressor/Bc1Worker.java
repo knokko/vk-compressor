@@ -6,10 +6,12 @@ import com.github.knokko.boiler.descriptors.DescriptorUpdater;
 import com.github.knokko.boiler.images.VkbImage;
 import com.github.knokko.boiler.memory.MemoryCombiner;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
+import org.lwjgl.system.MemoryStack;
 
 import java.nio.ByteOrder;
 
 import static com.github.knokko.boiler.utilities.BoilerMath.nextMultipleOf;
+import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.vulkan.VK10.*;
 
 /**
@@ -36,13 +38,13 @@ public class Bc1Worker {
 	}
 
 	/**
-	 * Records commands to compress the RGBA data (1 byte per component) from the <i>source</i> range, and store the
+	 * Records commands to compress the RGBA data (1 byte per component) from the <i>source</i> buffer, and store the
 	 * compressed data in <i>destination</i>.
 	 * @param recorder The command recorder onto which the compute commands and transfer commands will be recorded
 	 * @param descriptorSet The descriptor set. It must have the <i>descriptorSetLayout</i> of the <i>Bc1Compressor</i>.
 	 *                      This method will call <i>vkUpdateDescriptorSets</i>, so you can't reuse it until the
 	 *                      recorded commands have completed execution.
-	 * @param source The source buffer range containing the RGBA8 image data
+	 * @param source The source buffer containing the RGBA8 image data
 	 * @param destination The destination image with BC1 format, must be in <i>VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL</i>
 	 */
 	public void compress(CommandRecorder recorder, long descriptorSet, VkbBuffer source, VkbImage destination) {
@@ -67,8 +69,8 @@ public class Bc1Worker {
 	}
 
 	/**
-	 * Records commands to compress the RGBA data (1 byte per component) from the <i>source</i> range, and store the
-	 * compressed data in <i>destination</i>. The {@link VkbBuffer#offset} of all buffer ranges must be a
+	 * Records commands to compress the RGBA data (1 byte per component) from the <i>source</i> buffer, and store the
+	 * compressed data in <i>destination</i>. The {@link VkbBuffer#offset} of all buffers must be a
 	 * multiple of {@link org.lwjgl.vulkan.VkPhysicalDeviceLimits#minStorageBufferOffsetAlignment}
 	 * @param recorder The command recorder onto which the compute command will be recorded
 	 * @param descriptorSet The descriptor set. It must have the <i>descriptorSetLayout</i> of the <i>Bc1Compressor</i>.
@@ -89,22 +91,30 @@ public class Bc1Worker {
 		if (width % 4 != 0 || height % 4 != 0) {
 			throw new IllegalArgumentException("Width (" + width + ") and height (" + height + ") must be a multiple of 4");
 		}
-		if (4L * width * height > source.size) throw new IllegalArgumentException("Source range is too small");
-		if ((long) width * height / 2 > destination.size) throw new IllegalArgumentException("Destination range is too small");
+		if (4L * width * height > source.size) throw new IllegalArgumentException("Source buffer is too small");
+		if ((long) width * height / 2 > destination.size) throw new IllegalArgumentException("Destination buffer is too small");
 
-		var updater = new DescriptorUpdater(recorder.stack, 3);
-		updater.writeStorageBuffer(0, descriptorSet, 0, compressor.matchBuffer);
-		updater.writeStorageBuffer(1, descriptorSet, 1, source);
-		updater.writeStorageBuffer(2, descriptorSet, 2, destination);
-		updater.update(compressor.boiler);
+		try (MemoryStack stack = stackPush()) {
+			var updater = new DescriptorUpdater(stack, 3);
+			updater.writeStorageBuffer(0, descriptorSet, 0, compressor.matchBuffer);
+			updater.writeStorageBuffer(1, descriptorSet, 1, source);
+			updater.writeStorageBuffer(2, descriptorSet, 2, destination);
+			updater.update(compressor.boiler);
 
-		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compressor.pipeline);
-		recorder.bindComputeDescriptors(compressor.pipelineLayout, descriptorSet);
-		int bigEndian = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN ? VK_TRUE : VK_FALSE;
-		vkCmdPushConstants(
-				recorder.commandBuffer, compressor.pipelineLayout,
-				VK_SHADER_STAGE_COMPUTE_BIT, 0, recorder.stack.ints(bigEndian, 2, width)
-		);
-		vkCmdDispatch(recorder.commandBuffer, width / 4, height / 4, 1);
+			vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compressor.pipeline);
+			recorder.bindComputeDescriptors(compressor.pipelineLayout, descriptorSet);
+			int bigEndian = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN ? VK_TRUE : VK_FALSE;
+			vkCmdPushConstants(
+					recorder.commandBuffer, compressor.pipelineLayout,
+					VK_SHADER_STAGE_COMPUTE_BIT, 0, stack.ints(bigEndian, 2, width, height)
+			);
+		}
+
+		int numBlocksX = width / 4;
+		int numBlocksY = height / 4;
+		int groupSize = 8;
+		int numGroupsX = nextMultipleOf(numBlocksX, groupSize) / groupSize;
+		int numGroupsY = nextMultipleOf(numBlocksY, groupSize) / groupSize;
+		vkCmdDispatch(recorder.commandBuffer, numGroupsX, numGroupsY, 1);
 	}
 }

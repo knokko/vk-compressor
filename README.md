@@ -18,8 +18,10 @@ This library requires
 
 ### Performance
 From my rough measurements (on my PC):
-- The bc1 encoder can compress ~12M pixels in ~22ms,
-  which is ~500k pixels per millisecond
+- The bc1 encoder can compress ~40M pixels in ~1.2ms,
+  which is ~33M pixels per millisecond*
+- The bc4 encoder can compress ~80M pixels in ~0.5ms,
+  which is ~160M pixels per millisecond*
 - The bc7 encoder can compress ~48M pixels in ~36 seconds,
   which is ~1.33k pixels per millisecond 
   (but note that encoding bc7 images is inherently difficult)
@@ -27,6 +29,13 @@ From my rough measurements (on my PC):
   which is ~40k pixels per millisecond
 - The kim2 encoder can compress ~58M pixels in ~400ms,
   which is ~140k pixels per millisecond
+
+\* I only count the time needed for *compressing* the image,
+*not* the time to load the source image from disk,
+or to save the compressed image to disk.
+For bc1/bc4 encoding, saving/loading the image(s) from disk
+will normally take much more time than the compression itself,
+so this throughput can probably not be reached in practice.
 
 ### Adding vk-compressor as dependency
 #### Java version
