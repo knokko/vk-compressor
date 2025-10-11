@@ -45,7 +45,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		)
 				.validation().forbidValidationErrors()
 				.enableDynamicRendering()
-				.addWindow(new WindowBuilder(800, 500, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
+				.addWindow(new WindowBuilder(800, 500, 2))
 				.requiredFeatures10("BC compression", VkPhysicalDeviceFeatures::textureCompressionBC)
 				.featurePicker10(((stack, supportedFeatures, toEnable) -> toEnable.textureCompressionBC(true)))
 				.build();
@@ -141,7 +141,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 
 	ManualTesting(VkbWindow window, VkbImage originalImage, VkbImage bc1Image, VkbImage bc4Image, VkbBuffer kimBuffer) {
 		super(
-				window, 1, true, VK_PRESENT_MODE_FIFO_KHR,
+				window, true, VK_PRESENT_MODE_FIFO_KHR,
 				ResourceUsage.COLOR_ATTACHMENT_WRITE, ResourceUsage.COLOR_ATTACHMENT_WRITE
 		);
 		this.originalImage = originalImage;
@@ -231,7 +231,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		builder.simpleColorBlending(1);
 		builder.dynamicStates(VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_VIEWPORT);
 		builder.ciPipeline.layout(pipelineLayout);
-		builder.dynamicRendering(0, VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED, window.surfaceFormat);
+		builder.dynamicRendering(0, VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED, window.properties.surfaceFormat());
 		return builder.build("ShowcasePipeline");
 	}
 
@@ -265,7 +265,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		builder.simpleColorBlending(1);
 		builder.dynamicStates(VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_VIEWPORT);
 		builder.ciPipeline.layout(kimPipelineLayout);
-		builder.dynamicRendering(0, VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED, window.surfaceFormat);
+		builder.dynamicRendering(0, VK_FORMAT_UNDEFINED, VK_FORMAT_UNDEFINED, window.properties.surfaceFormat());
 		long result = builder.build("KimPipeline");
 
 		vkDestroyShaderModule(boiler.vkDevice(), vertexModule, null);
@@ -278,15 +278,15 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 	protected void recordFrame(MemoryStack stack, int frameIndex, CommandRecorder recorder, AcquiredImage acquiredImage, BoilerInstance instance) {
 		var colorAttachments = VkRenderingAttachmentInfo.calloc(1, stack);
 		recorder.simpleColorRenderingAttachment(
-				colorAttachments.get(0), acquiredImage.image().vkImageView,
+				colorAttachments.get(0), acquiredImage.getImage().vkImageView,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				0.2f, 0.5f, 0.7f, 1f
 		);
 		recorder.beginSimpleDynamicRendering(
-				acquiredImage.width(), acquiredImage.height(),
+				acquiredImage.getWidth(), acquiredImage.getHeight(),
 				colorAttachments, null, null
 		);
-		recorder.dynamicViewportAndScissor(acquiredImage.width(), acquiredImage.height());
+		recorder.dynamicViewportAndScissor(acquiredImage.getWidth(), acquiredImage.getHeight());
 
 		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 		recorder.bindGraphicsDescriptors(pipelineLayout, descriptorSet);

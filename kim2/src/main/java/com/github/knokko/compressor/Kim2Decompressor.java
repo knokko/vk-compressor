@@ -80,7 +80,7 @@ public class Kim2Decompressor {
 		int height = getHeight(header);
 		int bitsPerPixel = getBitsPerPixel(header);
 
-		int color = compressed.get() & rgba(255, 255, 255, 0);
+		int color = changeAlpha(compressed.get(), 0);
 
 		int bitOffset = 32;
 		int nextValue = 0;

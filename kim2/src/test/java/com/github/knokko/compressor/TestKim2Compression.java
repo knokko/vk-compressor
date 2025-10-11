@@ -226,8 +226,7 @@ public class TestKim2Compression {
 		);
 		var targetImage = combiner.addImage(new ImageBuilder(
 				"Kim2TargetImage", 2 * input.getWidth(), 2 * input.getHeight()
-		).format(VK_FORMAT_R8G8B8A8_SRGB)
-				.setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT), 1f);
+		).colorAttachment().addUsage(VK_IMAGE_USAGE_TRANSFER_SRC_BIT), 1f);
 		var memory = combiner.build(false);
 
 		var compressedHost = compressed.intBuffer();
