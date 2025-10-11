@@ -149,8 +149,7 @@ public class TestKim1Compression {
 		var combiner = new MemoryCombiner(boiler, "CompressionMemory");
 		var targetImage = combiner.addImage(new ImageBuilder(
 				"TargetImage", 200, 200
-		).format(VK_FORMAT_R8G8B8A8_SRGB)
-				.setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT), 1f);
+		).colorAttachment().addUsage(VK_IMAGE_USAGE_TRANSFER_SRC_BIT), 1f);
 		var resultBuffer = combiner.addMappedBuffer(
 				4L * targetImage.width * targetImage.height,
 				4, VK_BUFFER_USAGE_TRANSFER_DST_BIT
