@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         jdk: [17, 21]
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-2022, ubuntu-latest]
     steps:
       - name: Install OpenMP on Linux
         if: ${{ matrix.os == 'ubuntu-latest' }}
