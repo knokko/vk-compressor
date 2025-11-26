@@ -157,6 +157,7 @@ public class TestBc1Compression {
 
 		long startRecordTime = System.nanoTime();
 		commands.submit("Bc1Compression", recorder -> {
+			worker.bindPipeline(recorder);
 			for (int index = 0; index < files.length; index++) {
 				var image = sourceImages[index];
 				worker.compress(
@@ -252,6 +253,7 @@ public class TestBc1Compression {
 			var destinationBuffer = destinationBuffers[index];
 			sourceBuffers[index].encodeBufferedImage(image);
 			commands.submit("Bc1Compression", recorder -> {
+				worker.bindPipeline(recorder);
 				worker.compress(
 						recorder, descriptorSet[0], sourceBuffer, destinationBuffer,
 						image.getWidth(), image.getHeight()

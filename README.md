@@ -5,6 +5,8 @@ compressed (Vulkan) image formats. Currently, it provides:
 - a [BC1 image compressor](bc1/docs.md) using a compute shader
 - a [BC4 image compressor](bc4/docs.md) using a compute shader
 - a [wrapper of a BC7 image compressor](bc7/docs.md)
+Note that this one does not work on all Linux distro's, and
+that it may require `sudo apt install libomp-dev`
 - a ['kim1' image compressor](kim1/docs.md), decompressor, and sampler.
 The 'kim1' format is a format that I invented for small images
 where many pixels have the same color as another pixel.
@@ -76,7 +78,7 @@ repositories {
 ...
 dependencies {
   ...
-  implementation 'com.github.knokko.vk-compressor:bc1:v0.5.0'
+  implementation 'com.github.knokko.vk-compressor:bc1:v0.6.0'
 }
 ```
 
@@ -94,6 +96,6 @@ dependencies {
 <dependency>
   <groupId>com.github.knokko.vk-compressor</groupId>
   <artifactId>kim2</artifactId>
-  <version>v0.5.0</version>
+  <version>v0.6.0</version>
 </dependency>
 ```

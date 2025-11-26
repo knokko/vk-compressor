@@ -66,6 +66,10 @@ your `Bc1Worker` to record commands that will actually
 compress an image.
 
 ## The actual compression
+Before you can call any of the `compress(...)` methods,
+you need to call the `bindPipeline(recorder)` method of the worker.
+(An exception will be thrown if you forget this.)
+
 Depending on the overload you choose,
 the result will either be stored in a buffer, or in an
 image.

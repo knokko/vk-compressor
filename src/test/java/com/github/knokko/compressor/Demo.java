@@ -115,7 +115,9 @@ public class Demo extends SimpleWindowRenderLoop {
 			recorder.bulkTransitionLayout(null, ResourceUsage.TRANSFER_DEST, originalImage, bc1Image, bc4Image);
 
 			recorder.copyBufferToImage(originalImage, sourceBufferBc1);
+			bc1Worker.bindPipeline(recorder);
 			bc1Worker.compress(recorder, descriptorSetBc1[0], sourceBufferBc1, bc1Image);
+			bc4Worker.bindPipeline(recorder);
 			bc4Worker.compress(recorder, descriptorSetBc4[0], sourceBufferBc4, bc4Image);
 
 			recorder.bulkTransitionLayout(

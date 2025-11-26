@@ -85,6 +85,7 @@ public class Bc4Benchmark {
 		var descriptorPool = descriptorCombiner.build("Bc4Descriptors");
 
 		var submission = commands.submit("Bc4Compression", recorder -> {
+			worker.bindPipeline(recorder);
 			for (int index = 0; index < inputImages.size(); index++) {
 				var image = inputImages.get(index);
 				for (int repetition = 0; repetition < numRepetitions; repetition++) {

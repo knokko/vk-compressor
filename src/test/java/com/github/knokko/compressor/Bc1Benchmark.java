@@ -78,6 +78,7 @@ public class Bc1Benchmark {
 		var descriptorPool = descriptorCombiner.build("Bc1Descriptors");
 
 		var submission = commands.submit("Bc1Compression", recorder -> {
+			worker.bindPipeline(recorder);
 			for (int index = 0; index < inputImages.size(); index++) {
 				var image = inputImages.get(index);
 				for (int repetition = 0; repetition < numRepetitions; repetition++) {

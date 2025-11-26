@@ -23,6 +23,8 @@ public class Bc4Worker {
 	private final Bc4Compressor compressor;
 	private final VkbBuffer transferBuffer;
 
+	private boolean calledBindPipeline;
+
 	/**
 	 * Constructs a new worker for <i>compressor</i>
 	 */
@@ -35,6 +37,15 @@ public class Bc4Worker {
 					VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
 			);
 		} else this.transferBuffer = null;
+	}
+
+	/**
+	 * Calls <i>vkCmdBindPipeline</i> to bind the bc4 compute pipeline. You must call this before calling any of the
+	 * <i>compress</i> methods.
+	 */
+	public void bindPipeline(CommandRecorder recorder) {
+		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compressor.pipeline);
+		calledBindPipeline = true;
 	}
 
 	/**
@@ -91,6 +102,7 @@ public class Bc4Worker {
 		}
 		if ((long) width * height > source.size) throw new IllegalArgumentException("Source buffer is too small");
 		if ((long) width * height / 2 > destination.size) throw new IllegalArgumentException("Destination buffer is too small");
+		if (!calledBindPipeline) throw new IllegalStateException("You need to call this.bindPipeline() first");
 
 		try (MemoryStack stack = stackPush()) {
 			var updater = new DescriptorUpdater(stack, 2);
@@ -98,7 +110,6 @@ public class Bc4Worker {
 			updater.writeStorageBuffer(1, descriptorSet, 1, destination);
 			updater.update(compressor.boiler);
 
-			vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, compressor.pipeline);
 			recorder.bindComputeDescriptors(compressor.pipelineLayout, descriptorSet);
 			int bigEndian = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN ? VK_TRUE : VK_FALSE;
 			//noinspection SuspiciousNameCombination
