@@ -12,6 +12,10 @@ where many pixels have the same color as another pixel.
 The 'kim2' format is a format that I invented for images where
 each pixel has approximately the same color,
 but with a possibly different intensity.
+- a ['kim3' image compressor](kim3/docs.md), decompressor, and sampler.
+The 'kim3' format is an alternative to the kim1 format that
+is cheaper to sample on old integrated GPUs, but takes a bit
+more space.
 
 This library requires
 [vk-boiler 5.0](https://github.com/knokko/vk-boiler).
@@ -29,6 +33,7 @@ From my rough measurements (on my PC):
   which is ~40k pixels per millisecond
 - The kim2 encoder can compress ~58M pixels in ~400ms,
   which is ~140k pixels per millisecond
+- TODO kim3
 
 \* I only count the time needed for *compressing* the image,
 *not* the time to load the source image from disk,
@@ -52,9 +57,9 @@ LWJGL and `vk-boiler` you want to use (as long as they
 are compatible).
 
 #### Modules
-This project is split into 5 gradle modules: 1 for each
-compression format: `kim1`, `kim2`, `bc1`, `bc4`, and `bc7`. You
-should add the ones you need. The `Gradle` and `Maven`
+This project is split into 6 gradle modules: 1 for each
+compression format: `kim1`, `kim2`, `kim3`, `bc1`, `bc4`, and `bc7`.
+You should add the ones you need. The `Gradle` and `Maven`
 examples below add just 1 of the modules. You need 1 line
 for each module you want.
 
