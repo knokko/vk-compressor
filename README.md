@@ -21,25 +21,28 @@ This library requires
 [vk-boiler 5.0](https://github.com/knokko/vk-boiler).
 
 ### Performance
-From my rough measurements (on my PC):
-- The bc1 encoder can compress ~40M pixels in ~1.2ms,
-  which is ~33M pixels per millisecond*
-- The bc4 encoder can compress ~80M pixels in ~0.5ms,
-  which is ~160M pixels per millisecond*
-- The bc7 encoder can compress ~48M pixels in ~36 seconds,
-  which is ~1.33k pixels per millisecond 
+You can run the benchmarks by using e.g. `./gradlew bc1Benchmark`.
+The results on my PC (without multithreading) are:
+- The bc1 encoder can compress ~200M pixels in ~4.3ms,
+  which is ~47M pixels per millisecond.*
+- The bc4 encoder can compress ~200M pixels in ~0.7ms,
+  which is ~300M pixels per millisecond.*
+- The bc7 encoder can compress ~4M pixels in ~3.1 seconds,
+  which is ~1.3k pixels per millisecond .
   (but note that encoding bc7 images is inherently difficult)
-- The kim1 encoder can compress ~13M pixels in ~300ms,
-  which is ~40k pixels per millisecond
-- The kim2 encoder can compress ~58M pixels in ~400ms,
-  which is ~140k pixels per millisecond
-- TODO kim3
+- The kim1 encoder can compress ~100M pixels in ~2000ms,
+  which is ~50k pixels per millisecond.
+- The kim2 encoder can compress ~580M pixels in ~2000ms,
+  which is ~290k pixels per millisecond.
+- The kim3 encoder can compress ~100M pixels in ~1900ms,
+  which is ~55k pixels per millisecond.
 
 \* I only count the time needed for *compressing* the image,
 *not* the time to load the source image from disk,
 or to save the compressed image to disk.
 For bc1/bc4 encoding, saving/loading the image(s) from disk
 will normally take much more time than the compression itself,
+(which happens on the GPU)
 so this throughput can probably not be reached in practice.
 
 ### Adding vk-compressor as dependency

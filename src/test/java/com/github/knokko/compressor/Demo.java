@@ -37,7 +37,7 @@ import static org.lwjgl.vulkan.KHRSurface.VK_PRESENT_MODE_FIFO_KHR;
 import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.VK12.VK_API_VERSION_1_2;
 
-public class ManualTesting extends SimpleWindowRenderLoop {
+public class Demo extends SimpleWindowRenderLoop {
 
 	public static void main(String[] args) throws IOException {
 		var boiler = new BoilerBuilder(
@@ -50,7 +50,7 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 				.featurePicker10(((stack, supportedFeatures, toEnable) -> toEnable.textureCompressionBC(true)))
 				.build();
 
-		var sourceImage = ImageIO.read(Objects.requireNonNull(ManualTesting.class.getResourceAsStream("mardek/Flametongue.png")));
+		var sourceImage = ImageIO.read(Objects.requireNonNull(Demo.class.getResourceAsStream("mardek/Flametongue.png")));
 
 		var combiner = new MemoryCombiner(boiler, "PersistentMemory");
 		var stagingCombiner = new MemoryCombiner(boiler, "CompressionMemory");
@@ -132,14 +132,14 @@ public class ManualTesting extends SimpleWindowRenderLoop {
 		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
 
 		var eventLoop = new WindowEventLoop();
-		eventLoop.addWindow(new ManualTesting(boiler.window(), originalImage, bc1Image, bc4Image, kimBuffer));
+		eventLoop.addWindow(new Demo(boiler.window(), originalImage, bc1Image, bc4Image, kimBuffer));
 		eventLoop.runMain();
 
 		memory.destroy(boiler);
 		boiler.destroyInitialObjects();
 	}
 
-	ManualTesting(VkbWindow window, VkbImage originalImage, VkbImage bc1Image, VkbImage bc4Image, VkbBuffer kimBuffer) {
+	Demo(VkbWindow window, VkbImage originalImage, VkbImage bc1Image, VkbImage bc4Image, VkbBuffer kimBuffer) {
 		super(
 				window, true, VK_PRESENT_MODE_FIFO_KHR,
 				ResourceUsage.COLOR_ATTACHMENT_WRITE, ResourceUsage.COLOR_ATTACHMENT_WRITE

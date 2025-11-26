@@ -77,6 +77,51 @@ dependencies {
 	compileOnly "org.joml:joml:${jomlVersion}"
 
 	testImplementation project(":kim1")
+	testImplementation project(":kim2")
+	testImplementation project(":kim3")
 	testImplementation project(":bc1")
 	testImplementation project(":bc4")
+	testImplementation project(":bc7")
+}
+
+tasks.register("demo", JavaExec) {
+	description = "Runs a simple demo showing kim1, bc1, bc4, and bc7 compression"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Demo"
+}
+
+tasks.register("kim1Benchmark", JavaExec) {
+	description = "Runs a kim1 compression speed benchmark"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Kim1Benchmark"
+}
+
+tasks.register("kim2Benchmark", JavaExec) {
+	description = "Runs a kim2 compression speed benchmark"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Kim2Benchmark"
+}
+
+tasks.register("kim3Benchmark", JavaExec) {
+	description = "Runs a kim3 compression speed benchmark"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Kim3Benchmark"
+}
+
+tasks.register("bc1Benchmark", JavaExec) {
+	description = "Runs a bc1 compression speed benchmark"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Bc1Benchmark"
+}
+
+tasks.register("bc4Benchmark", JavaExec) {
+	description = "Runs a bc4 compression speed benchmark"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Bc4Benchmark"
+}
+
+tasks.register("bc7Benchmark", JavaExec) {
+	description = "Runs a bc7 compression speed benchmark"
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.Bc7Benchmark"
 }

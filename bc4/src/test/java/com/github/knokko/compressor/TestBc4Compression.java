@@ -85,13 +85,6 @@ public class TestBc4Compression {
 
 		File[] files = new File("../test-helper/src/main/resources/com/github/knokko/compressor/mardek").listFiles();
 
-		// This commented out stuff is for benchmarking
-//		File[] rawFiles = new File("../test-helper/src/main/resources/com/github/knokko/compressor/larger").listFiles();
-//		assertNotNull(rawFiles);
-//		File[] files = Arrays.copyOf(rawFiles, 300 * rawFiles.length);
-//		for (int i = 1; i < 300; i++) {
-//			for (int j = 0; j < 3; j++) files[3 * i + j] = files[j];
-//		}
 		assertNotNull(files);
 		BufferedImage[] sourceImages = new BufferedImage[files.length];
 		for (int index = 0; index < files.length; index++) {

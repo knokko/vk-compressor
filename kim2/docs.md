@@ -5,7 +5,7 @@ made to compress images where each pixel has approximately
 the same color, but with possibly different intensities.
 
 ![An example of such an image](
-./src/test/resources/com/github/knokko/compressor/EarthThick.png
+../test-helper/src/main/resources/com/github/knokko/compressor/EarthThick.png
 )
 
 - If you store this image uncompressed, it would take
