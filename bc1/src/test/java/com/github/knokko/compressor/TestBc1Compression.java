@@ -102,12 +102,7 @@ public class TestBc1Compression {
 	public void testWith1SubmissionAnd1Worker() throws IOException {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "Bc1With1WorkerAnd1Submission", 1
-		)
-				.validation()
-				.forbidValidationErrors()
-				// This ridiculously long timeout is needed on GitHub Actions for some reason
-				.defaultTimeout(10_000_000_000L)
-				.build();
+		).validation().forbidValidationErrors().build();
 
 		File[] files = new File("../test-helper/src/main/resources/com/github/knokko/compressor/mardek").listFiles();
 		assertNotNull(files);

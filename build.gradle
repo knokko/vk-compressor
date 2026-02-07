@@ -11,11 +11,6 @@ java {
 allprojects {
 	apply plugin: "java"
 
-	java {
-		sourceCompatibility = "17"
-		targetCompatibility = "17"
-	}
-
 	repositories {
 		mavenCentral()
 		maven { url "https://central.sonatype.com/repository/maven-snapshots" }
@@ -23,9 +18,9 @@ allprojects {
 	}
 
 	project.ext.jomlVersion = "1.10.1"
-	project.ext.lwjglVersion = "3.4.0-SNAPSHOT"
+	project.ext.lwjglVersion = "3.4.1"
 	project.ext.coroutinesVersion = "1.7.3"
-	project.ext.boilerVersion = "v5.0.0"
+	project.ext.boilerVersion = "v5.2.1-pre2"
 	switch (OperatingSystem.current()) {
 		case OperatingSystem.LINUX:
 			def osArch = System.getProperty("os.arch")
