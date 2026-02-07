@@ -1,0 +1,3 @@
+dependencies {
+	implementation "com.github.knokko:vk-boiler:$boilerVersion"
+}

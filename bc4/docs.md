@@ -1,35 +1,79 @@
 # Using the BC4 compressor
-The BC4 image format is a standardized GPU-compressed image
-format supported by almost any *desktop* GPU.
+The BC4 image format is a standardized GPU-compressed image format supported by almost any *desktop* GPU.
+`vk-compressor` uses a modified version of
+[the Betsy bc4 compressor](https://github.com/darksylinc/betsy/blob/master/bin/Data/bc4.glsl)
+that uses Vulkan rather than OpenGL.
+
+## CLI usage
+To compressor `some-image.png`, and store the compressed data in `some-image.bc4`, use the following command:
+```shell
+./vk-compressor some-image.png --encoding bc4
+```
+or
+```shell
+./vk-compressor some-image.png --encoding bc4 --signed
+```
+If you use the `--signed` flag, you will get data for `VK_FORMAT_BC4_SNORM_BLOCK`,
+otherwise you will get data for `VK_FORMAT_BC4_UNORM_BLOCK`.
+
+To 'preview' it, you can run:
+```shell
+./vkc-preview some-image.bc4 --width 123 --height 123 --gui
+```
+or
+```shell
+./vkc-preview some-image.bc4 --width 123 --height 123 --gui --signed
+```
+(Assuming that the size of the original image was 123x123 pixels.)
+
+## Simple API usage
+The static methods of `Bc1Compressor` are the easy way to use the API. For instance:
+
+```java
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.nio.ByteBuffer;
+
+class SimpleApiUsage {
+	static void main(String[] args) throws IOException {
+		BufferedImage image = ImageIO.read(new File("some-grey-image.png"));
+		BufferedImage[] images = {image};
+		int[] widths = {image.getWidth()};
+		int[] heights = {image.getHeight()};
+		boolean signed = false;
+
+		ByteBuffer imageData = ByteBuffer.allocate(image.getWidth() * image.getHeight());
+		for (int y = 0; y < image.getHeight(); y++) {
+			for (int x = 0; x < image.getWidth(); x++) {
+				Color color = new Color(image.getRGB(x, y), true);
+				
+				// In this example, I use red as the 'greyscale color', but you could choose another component.
+				imageData.put((byte) color.getRed());
+			}
+		}
+		imageData.flip();
+	
+		ByteBuffer[] allImageData = {imageData};
+		Bc4Compressor.compressGreyscaleImageDataSimple(allImageData, widths, heights, signed, compressedData -> {
+			// Do something with `compressedData[0]`, e.g. copy it to some staging buffer, or write it to a file.
+		});
+	}
+}
+```
+
+## Complex API usage
+The complex API usage is much more complicated to use than the simple API usage, but it can be orders of magnitude
+faster, if you are working with data that is already in video memory.
 
 To use the BC4 compressor, create the `BoilerInstance`.
 Then, create an instance of `Bc4Compressor`:
 ```java
 var compressor = new Bc4Compressor(boiler);
 ```
-
 You only need 1 instance of `Bc4Compressor`
-(per `BoilerInstance`). Next, create 1 or more workers:
-```java
-var worker = new Bc4Worker(compressor, maxDestinationImagePixels, combiner);
-```
-If you want to put the compressed image data in a `VkImage`, you need to pick
-`maxDestinationImagePixels >= image.width * image.height` for any of your destination images.
-If you want to put the compressed image data in a `VkBuffer`, you can use `0`.
-The `combiner` parameter is needed because the worker may need to allocate some memory.
-Example code:
-```java
-var combiner = new MemoryCombiner(boiler, "CompressorMemory");
-var compressor = new Bc4Compressor(boiler, combiner, stagingCombiner);
-var worker = new Bc4Worker(compressor, 0, combiner);
-var memory = combiner.build(true);
+(per `BoilerInstance`).
 
-// Now you can use `worker`
-```
-You usually need just 1 instance of `Bc4Worker`, but
-having more of them allows you to do parallel recording.
-
-## Descriptor sets
+### Descriptor sets
 Before you start, you need to allocate 1
 or more descriptor sets of the Bc4 layout. You can access
 the layout using `compressor.descriptorSetLayout`.
@@ -40,70 +84,59 @@ var descriptorPool = descriptorCombiner.build("CompressionDescriptors");
 
 long descriptorSet = descriptorSets[0];
 ```
-Finally, you need to call one of the `compress` methods of
-your `Bc4Worker` to record commands that will actually
-compress an image.
 
-## The actual compression
-Before you can call any of the `compress(...)` methods,
-you need to call the `bindPipeline(recorder)` method of the worker.
-(An exception will be thrown if you forget this.)
+### The actual compression
+1. You need to create some command pool + command buffer yourself
+   (e.g. using `SingleTimeCommands.submit`), and let a `CommandRecorder`
+   start recording.
+2. Call `compressor.bindPipeline(recorder)` to bind the bc4
+   compression compute pipeline.
+3. Call `compressor.compress(...)` for each bc4 buffer that you want to compress.
 
-Depending on the overload you choose,
-the result will either be stored in a buffer, or in an
-image.
-- To store the result in a buffer, call the
-  `compress(recorder, descriptorSet, sourceBuffer, destinationBuffer, width, height)`
-  overload.
-- To store the result in an image, call the
-  `compress(recorder, descriptorSet, sourceBuffer, destinationImage)`
-  overload.
+#### Compression parameters
+##### recorder
+This is the same `CommandRecorder` that you passed to `bindPipeline`.
+You can use e.g. `SingleTimeCommands.submit` to obtain a
+`CommandRecorder` instance.
 
-In either case, you need to create some command pool +
-command buffer yourself
-(e.g. using `SingleTimeCommands.submit`),
-and let a `CommandRecorder`
-start recording, which is the first parameter you need to
-pass.
+##### descriptorSet
+This must be a `VkDescriptorSet` whose layout is
+`compressor.descriptorSetLayout`.
+Since the `compress(...)` method will call
+`vkUpdateDescriptorSets`, **you can't reuse the descriptor
+set until the command buffer has completed execution**.
+If you want to compress N buffers/images during the
+same submission, you need N descriptor sets.
 
-Furthermore, you need your descriptor set as the second
-parameter. Since the `compress(...)` method will call
-`vkUpdateDescriptorSets`, you can't reuse the descriptor
-set until the command buffer has completed execution.
-
-The `sourceBuffer` is the third parameter. This buffer
-must contain the data of the image to be compressed,
+##### source
+This buffer must contain the data of the image to be compressed,
 in a grayscale format with 1 byte per component. Thus, the
 byte size of the buffer should be `width * height`.
 
-In the first overload, the `destinationBuffer` is
-the fourth parameter. Once the command buffer has completed
-execution, the encoded image data will be stored in this
-buffer. The byte size should be `width * height / 2`.
-The `width` and `height` parameters are simply the width
-and height of the image to be compressed, in pixels.
+##### destination
+Once the command buffer has completed execution,
+the encoded image data will be stored in this buffer.
+The byte size should be `width * height / 2`.
 
-In the second overload, the `destinationImage` is the
-fourth and last parameter. Once the command buffer has
-completed execution, the compressed data will have been
-copied to the image. The image must have the layout
-`VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL`. Assuming that
-the source image data uses SRGB, the image format should
-be `VK_FORMAT_BC4_UNORM_BLOCK`.
+##### width
+The width of the image, in pixels
 
-## Synchronization
+##### height
+The height of the image, in pixels
+
+##### signed
+Whether the grayscale image data is *signed*:
+- This should be `true` when the image format is `VK_FORMAT_BC4_SNORM_BLOCK`
+- This should be `false` when the image format is `VK_FORMAT_BC4_UNORM_BLOCK`
+
+### Synchronization
 The `compress` method won't perform any synchronization on
-the source buffer and destination image/buffer. It's your
+the source buffer and destination buffer. It's your
 own responsibility to handle potential memory barriers and
 layout transitions. Furthermore, the `compress` method
 won't submit or *end* the command buffer/recorder, so
 that's also up to you.
 
-## Cleaning up
+### Cleaning up
 If you are done with all compression, call the
 `destroy()` method of the `Bc4Compressor`.
-
-## Credits
-The compressor uses a compute shader to compress images.
-This shader is a modified version of the BC4 compression shader of
-[Betsy](https://github.com/darksylinc/betsy/blob/master/bin/Data/bc4.glsl)

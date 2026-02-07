@@ -1,36 +1,47 @@
 # Using the BC7 compressor
-The BC7 image format is a standardized GPU-compressed image
-format supported by almost any *desktop* GPU. It requires 1
-byte per pixel (twice as much as BC1), but looks much better on some
-images, especially translucent images.
+The BC7 image format is a standardized GPU-compressed image format supported by almost any *desktop* GPU.
+`vk-compressor` provides Java bindings for the BC7 compressor of
+[Binomials basis_universal library](https://github.com/BinomialLLC/basis_universal).
+The bindings are created using [my fork of basis_universal](https://github.com/knokko/basis_universal).
+`vk-compressor` supports the following platforms:
+- Windows x64
+- Windows arm64
+- Linux x64
+- Linux arm64
+- MacOS x64
+- MacOS arm64
 
-I did **not** write my own BC7 compressor: this library is just a
-wrapper around [bc7enc_rdo](https://github.com/richgel999/bc7enc_rdo).
-This library includes precompiled binaries for `bc7enc_rdo`, which I
-ripped from [gpu-tex-enc](https://www.npmjs.com/package/@gpu-tex-enc/bc).
-Furthermore, this library includes
-[ispc](https://ispc.github.io/downloads.html), which is required
-on Linux.
+## CLI usage
+To compressor `some-image.png`, and store the compressed data in `some-image.bc7`, use the following command:
+```shell
+./vk-compressor some-image.png --encoding bc7
+```
+or e.g.
+```shell
+./vk-compressor some-image.png --encoding bc7 --bc7f-flags slowest
+```
+You can use the `bc7f-flags` argument to alter the quality and performance of the compressor. You can either use 
+[an integer flag](https://github.com/BinomialLLC/basis_universal/blob/20ed781c4b8d98b36074019a3389d4f71527a4d9/transcoder/basisu_transcoder_internal.h#L3417),
+or one of the following strings: `fastest`, `faster`, `fast`, `default`, `slower`, `slowest`.
 
-## Supported OS's
-Windows and macOS are supported, and no additional installation is
-needed.
+To 'preview' it, you can run:
+```shell
+./vkc-preview some-image.bc7 --width 123 --height 123 --gui
+```
+(Assuming that the size of the original image was 123x123 pixels.)
 
-Some Linux distributions are supported, but not all.
-For instance, Ubuntu is supported, but Alpine is not. It looks like
-the precompiled binary only supports distributions with `glibc`
-support.
+## API usage
+You can use one of the static methods of `Bc7Compressor` to compress an image to the BC7 format. For instance:
+```java
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
 
-The Linux distributions that are supported do however need to
-install OpenMP, for instance by running `sudo apt install libomp-dev`
-on Ubuntu.
-
-## Usage
-To use this BC7 wrapper, you need to call
-`Bc7Compressor.compressBc7(bufferedImage)`. This method will
-return a `byte[]`, which will be the BC7 *payload*: this is the
-stuff that you should put in a buffer, and send to a BC7
-`VkImage` using `vkCmdCopyBufferToImage`. This byte array does
-**not** contain any header data (like the width or height), because
-you can just grab the width and height from the `bufferedImage`
-that you passed as parameter.
+class SimpleApiUsage {
+	static void main(String[] args) throws IOException {
+		int flags = Bc7Compressor.FLAGS_DEFAULT;
+		byte[] bc7Data = Bc7Compressor.compressBufferedImage(flags, ImageIO.read(new File("some-image.png")));
+		// Do something with bc7Data
+	}
+}
+```

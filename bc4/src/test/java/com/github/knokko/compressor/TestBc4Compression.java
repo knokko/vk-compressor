@@ -39,7 +39,7 @@ public class TestBc4Compression {
 		for (File expected : expectedFiles) {
 			File actual = new File(actualFolder + "/" + expected.getName());
 			assertEquals(expected.length(), actual.length(), expected.getName());
-			assertImageEquals(ImageIO.read(expected), ImageIO.read(actual));
+			assertImageEquals(ImageIO.read(expected), ImageIO.read(actual), 1.0);
 		}
 	}
 
@@ -76,93 +76,47 @@ public class TestBc4Compression {
 	public void testWith1SubmissionAnd1Worker() throws IOException {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "Bc4With1WorkerAnd1Submission", 1
-		)
-				.validation()
-				.forbidValidationErrors()
-				// This ridiculously long timeout is needed on GitHub Actions for some reason
-				.defaultTimeout(10_000_000_000L)
-				.build();
+		).validation().forbidValidationErrors().build();
 
 		File[] files = new File("../test-helper/src/main/resources/com/github/knokko/compressor/mardek").listFiles();
 
 		assertNotNull(files);
-		BufferedImage[] sourceImages = new BufferedImage[files.length];
+		ByteBuffer[] sourceImages = new ByteBuffer[files.length];
+		int[] widths = new int[sourceImages.length];
+		int[] heights = new int[sourceImages.length];
 		for (int index = 0; index < files.length; index++) {
-			sourceImages[index] = ImageIO.read(files[index]);
+			var bufferedImage = ImageIO.read(files[index]);
+			widths[index] = bufferedImage.getWidth();
+			heights[index] = bufferedImage.getHeight();
+			var byteBuffer = ByteBuffer.allocate(bufferedImage.getWidth() * bufferedImage.getHeight());
+			for (int y = 0; y < bufferedImage.getHeight(); y++) {
+				for (int x = 0; x < bufferedImage.getWidth(); x++) {
+					var color = new Color(bufferedImage.getRGB(x, y), true);
+					int average = (color.getRed() + color.getGreen() + color.getBlue()) / 3;
+					byteBuffer.put((byte) average);
+				}
+			}
+			byteBuffer.flip();
+			sourceImages[index] = byteBuffer;
 		}
 
 		File destinationFolder = Files.createTempDirectory("").toFile();
 		destinationFolder.deleteOnExit();
 		assertTrue(destinationFolder.isDirectory() || destinationFolder.mkdirs());
 
-		var combiner = new MemoryCombiner(boiler, "CompressorMemory");
-		var compressor = new Bc4Compressor(boiler);
-		var worker = new Bc4Worker(compressor, 0, combiner);
-
-		var descriptorCombiner = new DescriptorCombiner(boiler);
-		var descriptorSets = descriptorCombiner.addMultiple(compressor.descriptorSetLayout, files.length);
-		var descriptorPool = descriptorCombiner.build("CompressorDescriptors");
-
-		MappedVkbBuffer[] sourceBuffers = new MappedVkbBuffer[files.length];
-		MappedVkbBuffer[] destinationBuffers = new MappedVkbBuffer[files.length];
-		long storageAlignment = boiler.deviceProperties.limits().minStorageBufferOffsetAlignment();
-		for (int index = 0; index < files.length; index++) {
-			var image = sourceImages[index];
-			sourceBuffers[index] = combiner.addMappedDeviceLocalBuffer(
-					(long) image.getWidth() * image.getHeight(),
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
-			);
-			destinationBuffers[index] = combiner.addMappedDeviceLocalBuffer(
-					(long) image.getWidth() * image.getHeight() / 2,
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
-			);
-		}
-
-		var memory = combiner.build(false);
-
-		for (int index = 0; index < files.length; index++) {
-			ByteBuffer byteBuffer = sourceBuffers[index].byteBuffer();
-			for (int y = 0; y < sourceImages[index].getHeight(); y++) {
-				for (int x = 0; x < sourceImages[index].getWidth(); x++) {
-					Color color = new Color(sourceImages[index].getRGB(x, y));
-					byteBuffer.put((byte) ((color.getRed() + color.getGreen() + color.getBlue()) / 3));
-				}
-			}
-		}
-
-		long startRecordTime = System.nanoTime();
-		var submission = SingleTimeCommands.submit(boiler, "Bc4Compression", recorder -> {
-			worker.bindPipeline(recorder);
+		Bc4Compressor.compressGreyscaleImageData(sourceImages, widths, heights, false, boiler, compressedBuffers -> {
 			for (int index = 0; index < files.length; index++) {
-				var image = sourceImages[index];
-				worker.compress(
-						recorder, descriptorSets[index], sourceBuffers[index],
-						destinationBuffers[index], image.getWidth(), image.getHeight()
-				);
+				File destinationFile = new File(destinationFolder + "/" + files[index].getName());
+				byte[] bytes = new byte[compressedBuffers[index].capacity()];
+				compressedBuffers[index].get(bytes);
+				try {
+					ImageIO.write(crappyDecodeBc4(bytes, widths[index], heights[index]), "PNG", destinationFile);
+				} catch (IOException e) {
+					throw new RuntimeException(e);
+				}
+				destinationFile.deleteOnExit();
 			}
-			recorder.bulkBufferBarrier(
-					ResourceUsage.computeBuffer(VK_ACCESS_SHADER_WRITE_BIT),
-					ResourceUsage.HOST_READ, destinationBuffers
-			);
 		});
-		long submissionTime = System.nanoTime();
-		submission.destroy();
-		System.out.println("Recording compression took " + (submissionTime - startRecordTime) / 1_000_000 + " ms");
-		System.out.println("Compression took " + (System.nanoTime() - submissionTime) / 1_000 + " us");
-
-		for (int index = 0; index < files.length; index++) {
-			File destinationFile = new File(destinationFolder + "/" + files[index].getName());
-			var image = sourceImages[index];
-			var outputBuffer = destinationBuffers[index].byteBuffer();
-			var outputArray = new byte[outputBuffer.capacity()];
-			outputBuffer.get(outputArray);
-			ImageIO.write(crappyDecodeBc4(outputArray, image.getWidth(), image.getHeight()), "PNG", destinationFile);
-			destinationFile.deleteOnExit();
-		}
-
-		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
-		compressor.destroy();
-		memory.destroy(boiler);
 		boiler.destroyInitialObjects();
 
 		checkResults(destinationFolder);
@@ -186,7 +140,6 @@ public class TestBc4Compression {
 
 		var combiner = new MemoryCombiner(boiler, "CompressionMemory");
 		var compressor = new Bc4Compressor(boiler);
-		var worker = new Bc4Worker(compressor, 0, combiner);
 
 		MappedVkbBuffer[] sourceBuffers = new MappedVkbBuffer[files.length];
 		MappedVkbBuffer[] destinationBuffers = new MappedVkbBuffer[files.length];
@@ -228,10 +181,10 @@ public class TestBc4Compression {
 			var sourceBuffer = sourceBuffers[index];
 			var destinationBuffer = destinationBuffers[index];
 			commands.submit("Bc4Compression", recorder -> {
-				worker.bindPipeline(recorder);
-				worker.compress(
+				compressor.bindPipeline(recorder);
+				compressor.compress(
 						recorder, descriptorSet[0], sourceBuffer, destinationBuffer,
-						image.getWidth(), image.getHeight()
+						image.getWidth(), image.getHeight(), false
 				);
 				var computeUsage = ResourceUsage.computeBuffer(VK_ACCESS_SHADER_WRITE_BIT);
 				recorder.bufferBarrier(destinationBuffer, computeUsage, ResourceUsage.HOST_READ);

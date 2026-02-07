@@ -37,7 +37,7 @@ public class TestBc1Compression {
 		for (File expected : expectedFiles) {
 			File actual = new File(actualFolder + "/" + expected.getName());
 			assertEquals(expected.length(), actual.length(), expected.getName());
-			assertImageEquals(ImageIO.read(expected), ImageIO.read(actual));
+			assertImageEquals(ImageIO.read(expected), ImageIO.read(actual), 1.0);
 		}
 	}
 
@@ -102,12 +102,7 @@ public class TestBc1Compression {
 	public void testWith1SubmissionAnd1Worker() throws IOException {
 		var boiler = new BoilerBuilder(
 				VK_API_VERSION_1_2, "Bc1With1WorkerAnd1Submission", 1
-		)
-				.validation()
-				.forbidValidationErrors()
-				// This ridiculously long timeout is needed on GitHub Actions for some reason
-				.defaultTimeout(10_000_000_000L)
-				.build();
+		).validation().forbidValidationErrors().build();
 
 		File[] files = new File("../test-helper/src/main/resources/com/github/knokko/compressor/mardek").listFiles();
 		assertNotNull(files);
@@ -120,74 +115,22 @@ public class TestBc1Compression {
 		destinationFolder.deleteOnExit();
 		assertTrue(destinationFolder.isDirectory() || destinationFolder.mkdirs());
 
-		var combiner = new MemoryCombiner(boiler, "CompressorMemory");
-		var stagingCombiner = new MemoryCombiner(boiler, "Staging");
-		var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
-		var worker = new Bc1Worker(compressor, 0, combiner);
-
-		var descriptorCombiner = new DescriptorCombiner(boiler);
-		var descriptorSets = descriptorCombiner.addMultiple(compressor.descriptorSetLayout, files.length);
-		var descriptorPool = descriptorCombiner.build("CompressorDescriptors");
-
-		MappedVkbBuffer[] sourceBuffers = new MappedVkbBuffer[files.length];
-		MappedVkbBuffer[] destinationBuffers = new MappedVkbBuffer[files.length];
-		long storageAlignment = boiler.deviceProperties.limits().minStorageBufferOffsetAlignment();
-		for (int index = 0; index < files.length; index++) {
-			var image = sourceImages[index];
-			sourceBuffers[index] = combiner.addMappedDeviceLocalBuffer(
-					4L * image.getWidth() * image.getHeight(),
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
-			);
-			destinationBuffers[index] = combiner.addMappedDeviceLocalBuffer(
-					(long) image.getWidth() * image.getHeight() / 2,
-					storageAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0.5f
-			);
-		}
-
-		var memory = combiner.build(false);
-		var stagingMemory = stagingCombiner.build(false);
-
-		for (int index = 0; index < files.length; index++) {
-			sourceBuffers[index].encodeBufferedImage(sourceImages[index]);
-		}
-
-		var commands = new SingleTimeCommands(boiler);
-		commands.submit("StagingTransfer", compressor::performStagingTransfer).awaitCompletion();
-		stagingMemory.destroy(boiler);
-
-		long startRecordTime = System.nanoTime();
-		commands.submit("Bc1Compression", recorder -> {
-			worker.bindPipeline(recorder);
+		Bc1Compressor.compressBufferedImages(sourceImages, boiler, compressedBuffers -> {
 			for (int index = 0; index < files.length; index++) {
+				File destinationFile = new File(destinationFolder + "/" + files[index].getName());
 				var image = sourceImages[index];
-				worker.compress(
-						recorder, descriptorSets[index], sourceBuffers[index],
-						destinationBuffers[index], image.getWidth(), image.getHeight()
-				);
+				byte[] bytes = new byte[compressedBuffers[index].capacity()];
+				compressedBuffers[index].get(bytes);
+				try {
+					ImageIO.write(crappyDecodeBc1(
+							bytes, image.getWidth(), image.getHeight()
+					), "PNG", destinationFile);
+				} catch (IOException e) {
+					throw new RuntimeException(e);
+				}
+				destinationFile.deleteOnExit();
 			}
-			recorder.bulkBufferBarrier(
-					ResourceUsage.computeBuffer(VK_ACCESS_SHADER_WRITE_BIT),
-					ResourceUsage.HOST_READ, destinationBuffers
-			);
 		});
-		long submissionTime = System.nanoTime();
-		commands.destroy();
-		System.out.println("Recording compression took " + (submissionTime - startRecordTime) / 1_000_000 + " ms");
-		System.out.println("Compression took " + (System.nanoTime() - submissionTime) / 1_000 + " us");
-
-		for (int index = 0; index < files.length; index++) {
-			File destinationFile = new File(destinationFolder + "/" + files[index].getName());
-			var image = sourceImages[index];
-			var outputBuffer = destinationBuffers[index].byteBuffer();
-			var outputArray = new byte[outputBuffer.capacity()];
-			outputBuffer.get(outputArray);
-			ImageIO.write(crappyDecodeBc1(outputArray, image.getWidth(), image.getHeight()), "PNG", destinationFile);
-			destinationFile.deleteOnExit();
-		}
-
-		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
-		compressor.destroy();
-		memory.destroy(boiler);
 		boiler.destroyInitialObjects();
 
 		checkResults(destinationFolder);

@@ -1,30 +1,205 @@
 package com.github.knokko.compressor;
 
 import com.github.knokko.boiler.BoilerInstance;
+import com.github.knokko.boiler.buffers.MappedVkbBuffer;
+import com.github.knokko.boiler.buffers.VkbBuffer;
+import com.github.knokko.boiler.builders.BoilerBuilder;
+import com.github.knokko.boiler.commands.CommandRecorder;
+import com.github.knokko.boiler.commands.SingleTimeCommands;
+import com.github.knokko.boiler.descriptors.DescriptorCombiner;
 import com.github.knokko.boiler.descriptors.DescriptorSetLayoutBuilder;
+import com.github.knokko.boiler.descriptors.DescriptorUpdater;
 import com.github.knokko.boiler.descriptors.VkbDescriptorSetLayout;
+import com.github.knokko.boiler.memory.MemoryCombiner;
 import com.github.knokko.boiler.memory.callbacks.CallbackUserData;
+import com.github.knokko.boiler.synchronization.ResourceUsage;
+import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkPushConstantRange;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.function.Consumer;
+
+import static com.github.knokko.boiler.utilities.BoilerMath.nextMultipleOf;
+import static java.lang.Math.min;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.vulkan.VK10.*;
 
 /**
- * This is a modified version of the BC4 compressor from
- * <a href="https://github.com/darksylinc/betsy/blob/master/bin/Data/bc4.glsl">the Betsy GPU compressor</a>.
- * I (knokko) modified it to make it compatible with Vulkan. Furthermore, I altered the algorithm to
- * work on buffers rather than images, and changed the code style to my liking.
+ * <p>
+ *     This is a modified version of the BC4 compressor from
+ *     <a href="https://github.com/darksylinc/betsy/blob/master/bin/Data/bc4.glsl">the Betsy GPU compressor</a>.
+ *     I (knokko) modified it to make it compatible with Vulkan.
+ * </p>
+ *
+ * <ul>
+ *     <li>The static methods are the easiest way to use this class.</li>
+ *     <li>
+ *         Alternatively, you can use the constructor and instance methods.
+ *         These are more complicated, but can have massive performance benefits when the input images are already
+ *         in video memory.
+ *     </li>
+ * </ul>
  */
 public class Bc4Compressor {
 
-	final BoilerInstance boiler;
+	/**
+	 * Compresses {@code imageData.length} images to BC4, and invokes {@code resultCallback} with the compressed data,
+	 * for each of the images.
+	 * <b>
+	 *     The buffers passed to <i>resultCallback</i> must not be used anymore after the callback returns.
+	 *     If you want to process it later, you must copy it to some other buffer before returning from the callback.
+	 * </b>
+	 * @param imageData The image data to be compressed, in greyscale format (1 byte per pixel).
+	 *                  The length of {@code imageData[i]} must be {@code widths[i] * heights[i]}.
+	 *                  The intensity of the pixel at {@code (x, y)} must be stored at {@code x + y * widths[i]}.
+	 * @param widths The width of {@code imageData[i]} is {@code widths[i]}.
+	 *               It must hold that {@code imageData.length == widths.length}.
+	 * @param heights The height of {@code imageData[i]} is {@code heights[i]}.
+	 *                It must hold that {@code imageData.length == heights.length}.
+	 * @param signed True if the destination format is {@code VK_FORMAT_BC4_SNORM_BLOCK},
+	 *               false if the destination format is {@code VK_FORMAT_BC4_UNORM_BLOCK}.
+	 * @param boiler The {@link BoilerInstance} that will be used for all GPU-related operations.
+	 * @param resultCallback This callback will be invoked once before this method returns.
+	 *                       The compressed data of {@code imageData[i]} will be passed to the
+	 *                       ByteBuffer at index {@code i}.
+	 */
+	public static void compressGreyscaleImageData(
+			ByteBuffer[] imageData, int[] widths, int[] heights, boolean signed,
+			BoilerInstance boiler, Consumer<ByteBuffer[]> resultCallback
+	) {
+		var combiner = new MemoryCombiner(boiler, "CompressorMemory");
+		var stagingCombiner = new MemoryCombiner(boiler, "Staging");
+		var compressor = new Bc4Compressor(boiler);
+
+		var descriptorCombiner = new DescriptorCombiner(boiler);
+		var descriptorSets = descriptorCombiner.addMultiple(compressor.descriptorSetLayout, imageData.length);
+		var descriptorPool = descriptorCombiner.build("CompressorDescriptors");
+
+		var sourceTransferBuffers = new MappedVkbBuffer[imageData.length];
+		var sourceBuffers = new VkbBuffer[imageData.length];
+		var destinationBuffers = new VkbBuffer[imageData.length];
+		var destinationTransferBuffers = new MappedVkbBuffer[imageData.length];
+		long storageAlignment = boiler.deviceProperties.limits().minStorageBufferOffsetAlignment();
+
+		for (int index = 0; index < imageData.length; index++) {
+			int width = nextMultipleOf(widths[index], 4);
+			int height = nextMultipleOf(heights[index], 4);
+
+			sourceTransferBuffers[index] = stagingCombiner.addMappedBuffer(
+					(long) width * height, 4L, VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+			);
+			sourceBuffers[index] = combiner.addBuffer(
+					(long) width * height, storageAlignment,
+					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 1f
+			);
+			destinationBuffers[index] = combiner.addBuffer(
+					(long) width * height / 2, storageAlignment,
+					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, 1f
+			);
+			destinationTransferBuffers[index] = combiner.addMappedBuffer(
+					(long) width * height / 2, storageAlignment, VK_BUFFER_USAGE_TRANSFER_DST_BIT
+			);
+		}
+
+		var memory = combiner.build(false);
+		var stagingMemory = stagingCombiner.build(false);
+
+		for (int index = 0; index < imageData.length; index++) {
+			int width = widths[index];
+			int paddedWidth = nextMultipleOf(width, 4);
+			int height = heights[index];
+			int paddedHeight = nextMultipleOf(height, 4);
+			var image = imageData[index];
+			var sourceBuffer = sourceTransferBuffers[index].byteBuffer();
+			if (width == paddedWidth && height == paddedHeight) {
+				sourceBuffer.put(0, image, 0, image.capacity());
+			} else {
+				for (int y = 0; y < paddedHeight; y++) {
+					int imageY = min(y, height - 1);
+					sourceBuffer.put(y * paddedWidth, image, imageY * width, width);
+					for (int x = width; x < paddedWidth; x++) {
+						sourceBuffer.put(y * paddedWidth + x, image.get(imageY * width + width - 1));
+					}
+				}
+			}
+		}
+
+		var commands = new SingleTimeCommands(boiler);
+		commands.submit("StagingTransfer", recorder -> {
+			recorder.bulkCopyBuffers(sourceTransferBuffers, sourceBuffers);
+			recorder.bulkBufferBarrier(ResourceUsage.TRANSFER_DEST, ResourceUsage.computeBuffer(VK_ACCESS_SHADER_READ_BIT), sourceBuffers);
+		}).awaitCompletion();
+		stagingMemory.destroy(boiler);
+
+		commands.submit("Bc4Compression", recorder -> {
+			compressor.bindPipeline(recorder);
+			for (int index = 0; index < imageData.length; index++) {
+				compressor.compress(
+						recorder, descriptorSets[index], sourceBuffers[index], destinationBuffers[index],
+						nextMultipleOf(widths[index], 4), nextMultipleOf(heights[index], 4), signed
+				);
+			}
+			recorder.bulkBufferBarrier(
+					ResourceUsage.computeBuffer(VK_ACCESS_SHADER_WRITE_BIT),
+					ResourceUsage.TRANSFER_SOURCE, destinationBuffers
+			);
+			recorder.bulkCopyBuffers(destinationBuffers, destinationTransferBuffers);
+			recorder.bulkBufferBarrier(ResourceUsage.TRANSFER_DEST, ResourceUsage.HOST_READ, destinationTransferBuffers);
+		});
+		commands.destroy();
+
+		var resultByteBuffers = new ByteBuffer[imageData.length];
+		for (int index = 0; index < imageData.length; index++) {
+			resultByteBuffers[index] = destinationTransferBuffers[index].byteBuffer();
+		}
+		resultCallback.accept(resultByteBuffers);
+
+		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
+		compressor.destroy();
+		memory.destroy(boiler);
+	}
+
+	/**
+	 * Compresses {@code imageData.length} images to BC4, and invokes {@code resultCallback} with the compressed data,
+	 * for each of the images.
+	 * <b>
+	 *     The buffers passed to <i>resultCallback</i> must not be used anymore after the callback returns.
+	 *     If you want to process it later, you must copy it to some other buffer before returning from the callback.
+	 * </b>
+	 * @param imageData The image data to be compressed, in greyscale format (1 byte per pixel).
+	 *                  The length of {@code imageData[i]} must be {@code widths[i] * heights[i]}.
+	 *                  The intensity of the pixel at {@code (x, y)} must be stored at {@code x + y * widths[i]}.
+	 * @param widths The width of {@code imageData[i]} is {@code widths[i]}.
+	 *               It must hold that {@code imageData.length == widths.length}.
+	 * @param heights The height of {@code imageData[i]} is {@code heights[i]}.
+	 *                It must hold that {@code imageData.length == heights.length}.
+	 * @param signed True if the destination format is {@code VK_FORMAT_BC4_SNORM_BLOCK},
+	 *               false if the destination format is {@code VK_FORMAT_BC4_UNORM_BLOCK}.
+	 * @param resultCallback This callback will be invoked once before this method returns.
+	 *                       The compressed data of {@code imageData[i]} will be passed to the
+	 *                       ByteBuffer at index {@code i}.
+	 */
+	public static void compressGreyscaleImageDataSimple(
+			ByteBuffer[] imageData, int[] widths, int[] heights, boolean signed, Consumer<ByteBuffer[]> resultCallback
+	) {
+		var boiler = new BoilerBuilder(
+				VK_API_VERSION_1_0, "Bc4Compressor", 1
+		).doNotUseVma().build();
+		compressGreyscaleImageData(imageData, widths, heights, signed, boiler, resultCallback);
+		boiler.destroyInitialObjects();
+	}
+
+	private final BoilerInstance boiler;
 	/**
 	 * All <i>descriptorSet</i>s passed to the <i>compress</i> methods of <i>Bc4Worker</i> should have this layout.
 	 */
 	public final VkbDescriptorSetLayout descriptorSetLayout;
 
-	final long pipelineLayout;
-	final long pipeline;
+	private final long pipelineLayout;
+	private final long pipeline;
+
+	private boolean calledBindPipeline;
 
 	/**
 	 * Constructs a new <i>Bc4Compressor</i> using the given <i>BoilerInstance</i>. You should normally only need 1
@@ -41,7 +216,7 @@ public class Bc4Compressor {
 
 			var pushConstants = VkPushConstantRange.calloc(1, stack);
 			//noinspection resource
-			pushConstants.get(0).set(VK_SHADER_STAGE_COMPUTE_BIT, 0, 12);
+			pushConstants.get(0).set(VK_SHADER_STAGE_COMPUTE_BIT, 0, 16);
 			this.pipelineLayout = boiler.pipelines.createLayout(
 					pushConstants, "Bc4CompressorPipelineLayout",
 					descriptorSetLayout.vkDescriptorSetLayout
@@ -51,6 +226,65 @@ public class Bc4Compressor {
 					pipelineLayout, "com/github/knokko/compressor/betsy-bc4.spv", "Bc4Compressor"
 			);
 		}
+	}
+
+	/**
+	 * Calls <i>vkCmdBindPipeline</i> to bind the bc4 compute pipeline.
+	 * You must call this before calling {@link #compress}.
+	 */
+	public void bindPipeline(CommandRecorder recorder) {
+		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+		calledBindPipeline = true;
+	}
+
+	/**
+	 * Records commands to compress the grayscale data (1 byte per pixel) from the <i>source</i> buffer, and store the
+	 * compressed data in <i>destination</i>. The {@link VkbBuffer#offset} of all buffers must be a
+	 * multiple of {@link org.lwjgl.vulkan.VkPhysicalDeviceLimits#minStorageBufferOffsetAlignment}
+	 * @param recorder The command recorder onto which the compute command will be recorded
+	 * @param descriptorSet The descriptor set. It must have the <i>descriptorSetLayout</i> of the <i>Bc4Compressor</i>.
+	 *                      This method will call <i>vkUpdateDescriptorSets</i>, so you can't reuse it until the
+	 *                      recorded commands have completed execution.
+	 * @param source The source buffer containing the grayscale image data
+	 *                  (pixel (0, 0) at offset 0, pixel (1, 0) at offset 1, etc...)
+	 * @param destination The destination buffer to which the resulting BC4 image data will be written.
+	 * @param width The width of the image, in pixels
+	 * @param height The height of the image, in pixels
+	 * @param signed True when the image format is <b>VK_FORMAT_BC4_SNORM_BLOCK</b>,
+	 *               false when the image format is <b>VK_FORMAT_BC4_UNORM_BLOCK</b>
+	 */
+	public void compress(
+			CommandRecorder recorder, long descriptorSet, VkbBuffer source,
+			VkbBuffer destination, int width, int height, boolean signed
+	) {
+		if (width % 4 != 0 || height % 4 != 0) {
+			throw new IllegalArgumentException("Width (" + width + ") and height (" + height + ") must be a multiple of 4");
+		}
+		if ((long) width * height > source.size) throw new IllegalArgumentException("Source buffer is too small");
+		if ((long) width * height / 2 > destination.size) throw new IllegalArgumentException("Destination buffer is too small");
+		if (!calledBindPipeline) throw new IllegalStateException("You need to call this.bindPipeline() first");
+
+		try (MemoryStack stack = stackPush()) {
+			var updater = new DescriptorUpdater(stack, 2);
+			updater.writeStorageBuffer(0, descriptorSet, 0, source);
+			updater.writeStorageBuffer(1, descriptorSet, 1, destination);
+			updater.update(boiler);
+
+			recorder.bindComputeDescriptors(pipelineLayout, descriptorSet);
+			int bigEndian = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN ? 1 : 0;
+			int signedInt = signed ? 1 : 0;
+			vkCmdPushConstants(
+					recorder.commandBuffer, pipelineLayout,
+					VK_SHADER_STAGE_COMPUTE_BIT, 0, recorder.stack.ints(bigEndian, signedInt, width, height)
+			);
+		}
+
+		int numBlocksX = width / 4;
+		int numBlocksY = height / 4;
+		int groupSize = 8;
+		int numGroupsX = nextMultipleOf(numBlocksX, groupSize) / groupSize;
+		int numGroupsY = nextMultipleOf(numBlocksY, groupSize) / groupSize;
+		vkCmdDispatch(recorder.commandBuffer, numGroupsX, numGroupsY, 1);
 	}
 
 	/**

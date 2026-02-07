@@ -1,4 +1,5 @@
 dependencies {
+    implementation "com.github.knokko:vk-boiler:$boilerVersion"
     compileOnly platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
     compileOnly "org.lwjgl:lwjgl"
 }

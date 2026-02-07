@@ -2,7 +2,11 @@
 The kim3 format is another image format invented by me, 
 and a simpler variant of the [kim1 image format](
 ../kim1/docs.md
-). It is slightly less compact and not completely lossless,
+). 
+- It is slightly less compact.
+- It is not completely lossless, but the quality loss is hard to spot with the naked eye.
+- It is more efficient to sample on old iGpu's.
+
 but more efficient to sample on old iGpu's.
 Let's take a look at this example again:
 
@@ -22,7 +26,19 @@ If you want better performance on old integrated GPUs,
 this extra size may or may not be worth the faster
 sampling (in the fragment shader).
 
-## Compressing
+## Compressing using the CLI
+To compressor `some-image.png`, and store the compressed data in `some-image.kim3`, use the following command:
+```shell
+./vk-compressor some-image.png --encoding kim3
+```
+To 'preview' it, you can run:
+```shell
+./vkc-preview some-image.kim3 --gui
+```
+Note that the size is always included in `kim3` files,
+so the `--width` and `--height` arguments of `vkc-preview` are not needed.
+
+## Compressing using the API
 The `Kim3Compressor` can be used to convert uncompressed
 RGBA images to kim3. You need to use its public
 constructor, which takes a `ByteBuffer` (for the data),
@@ -35,7 +51,7 @@ compress the data, you need to call its `compress` method,
 which requires a `ByteBuffer` that has (at least)
 `4 * intSize` remaining bytes.
 
-## Decompressing
+## Decompressing using the API
 The `Kim3Decompressor` can be used to decode compressed
 kim3 data, and restore the original image data (although
 this will cost some precision due to the SRGB-to-linear
@@ -49,7 +65,7 @@ actually decompress it, you need to call the
 `getColor(x, y)` for each pixel that you want to recover
 (all pixels if you want the original image back).
 
-## Sampling
+## Sampling from a (fragment) shader
 If you store compressed kim3 data in a uniform buffer or
 storage buffer, you can sample the data from shaders
 (just like you can sample from regular `VkImage`s).

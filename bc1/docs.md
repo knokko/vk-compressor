@@ -1,6 +1,40 @@
 # Using the BC1 compressor
-The BC1 image format is a standardized GPU-compressed image
-format supported by almost any *desktop* GPU.
+The BC1 image format is a standardized GPU-compressed image format supported by almost any *desktop* GPU.
+`vk-compressor` uses a modified version of
+[the Betsy bc1 compressor](https://github.com/darksylinc/betsy/blob/master/bin/Data/bc1.glsl)
+that supports the 1-bit alpha channel.
+
+## CLI usage
+To compressor `some-image.png`, and store the compressed data in `some-image.bc1`, use the following command:
+```shell
+./vk-compressor some-image.png --encoding bc1
+```
+To 'preview' it, you can run:
+```shell
+./vkc-preview some-image.bc1 --width 123 --height 123 --gui
+```
+(Assuming that the size of the original image was 123x123 pixels.)
+
+## Simple API usage
+The static methods of `Bc1Compressor` are the easy way to use the API. For instance:
+```java
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+
+class SimpleApiUsage {
+	static void main(String[] args) throws IOException {
+		BufferedImage[] images = { ImageIO.read(new File("some-image.png")) };
+		Bc1Compressor.compressBufferedImagesSimple(images, compressedData -> {
+			// Do something with `compressedData[0]`, e.g. copy it to some staging buffer, or write it to a file.
+		});
+	}
+}
+```
+
+## Complex API usage
+The complex API usage is much more complicated to use than the simple API usage, but it can be orders of magnitude
+faster, if you are working with data that is already in video memory.
 
 To use the BC1 compressor, create the `BoilerInstance`.
 Then, create an instance of `Bc1Compressor`:
@@ -50,7 +84,7 @@ stagingMemory.destroy(boiler);
 You usually need just 1 instance of `Bc1Worker`, but
 having more of them allows you to do parallel recording.
 
-## Descriptor sets
+### Descriptor sets
 Before you start, you need to allocate 1
 or more descriptor sets of the Bc1 layout. You can access
 the layout using `compressor.descriptorSetLayout`.
@@ -65,7 +99,7 @@ Finally, you need to call one of the `compress` methods of
 your `Bc1Worker` to record commands that will actually
 compress an image.
 
-## The actual compression
+### The actual compression
 Before you can call any of the `compress(...)` methods,
 you need to call the `bindPipeline(recorder)` method of the worker.
 (An exception will be thrown if you forget this.)
@@ -112,7 +146,7 @@ copied to the image. The image must have the layout
 the source image data uses SRGB, the image format should
 be `VK_FORMAT_BC1_RGBA_SRGB_BLOCK`.
 
-## Synchronization
+### Synchronization
 The `compress` method won't perform any synchronization on
 the source buffer and destination image/buffer. It's your
 own responsibility to handle potential memory barriers and
@@ -120,11 +154,6 @@ layout transitions. Furthermore, the `compress` method
 won't submit or *end* the command buffer/recorder, so
 that's also up to you.
 
-## Cleaning up
+### Cleaning up
 If you are done with all compression, call the
 `destroy()` method of the `Bc1Compressor`.
-
-## Credits
-The compressor uses a compute shader to compress images.
-This shader is a modified version of the BC1 compression shader of
-[Betsy](https://github.com/darksylinc/betsy/blob/master/bin/Data/bc1.glsl)

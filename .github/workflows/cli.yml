@@ -1,0 +1,253 @@
+name: Building & testing the CLI
+
+on: [push, pull_request]
+
+jobs:
+  prepare-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: "zulu"
+      - name: Setup gradle
+        uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew shadowJar -p test-helper
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dreamshrine-original
+          path: ./test-helper/src/main/resources/com/github/knokko/compressor/dreamshrine.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: scimitar-original
+          path: ./test-helper/src/main/resources/com/github/knokko/compressor/mardek/AeropolitanScimitar.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: earth-original
+          path: ./test-helper/src/main/resources/com/github/knokko/compressor/EarthThick.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: expected-earth-kim2
+          path: ./.github/expected-earth.kim2.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: expected-dreamshrine-bc1
+          path: ./.github/expected-dreamshrine.bc1.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: expected-dreamshrine-bc4
+          path: ./.github/expected-dreamshrine.bc4.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: expected-dreamshrine-bc7
+          path: ./.github/expected-dreamshrine.bc7.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: test-helper
+          path: ./test-helper/build/libs/test-helper-all.jar
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-2022 ]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: "zulu"
+      - name: Setup gradle
+        uses: gradle/actions/setup-gradle@v6
+      - run: ./gradlew proguardCli
+      - run: unzip build/libs/vk-compressor-all.jar META-INF/versions/**
+      - run: jar --update --file build/libs/vk-compressor.jar META-INF
+      - run: ./gradlew proguardPreviewer
+      - run: jar --update --file previewer/build/libs/previewer.jar META-INF
+      - run: jlink --module-path "%JAVA_HOME%/jmods" --add-modules java.base,jdk.unsupported --output ./release
+      - run: mv ./build/libs/vk-compressor.jar ./release/vk-compressor.jar
+      - run: mv ./previewer/build/libs/previewer.jar ./release/previewer.jar
+      - name: Put Linux scripts
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: cp ./.github/compressor-script-linux ./release/vk-compressor && cp ./.github/preview-script-linux ./release/vkc-preview
+      - name: Put Windows scripts
+        if: ${{ matrix.os == 'windows-2022' }}
+        run: cp ./.github/compressor-script-windows.bat ./release/vk-compressor.bat && cp ./.github/preview-script-windows.bat ./release/vkc-preview.bat
+      - uses: actions/upload-artifact@v7
+        with:
+          name: releases-${{ matrix.os }}
+          path: ./release
+      - uses: actions/upload-artifact@v7
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        with:
+          name: releases-java
+          path: ./release/*.jar
+
+  test:
+    runs-on: ${{ matrix.os }}
+    needs: [build, prepare-test]
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-2022, macos-latest ]
+    steps:
+      - uses: actions/download-artifact@v7
+        if: ${{ matrix.os != 'macos-latest' }}
+        with:
+          name: releases-${{ matrix.os }}
+          path: ./
+      - uses: actions/download-artifact@v7
+        if: ${{ matrix.os == 'macos-latest' }}
+        with:
+          name: releases-java
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: dreamshrine-original
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: scimitar-original
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: earth-original
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: expected-earth-kim2
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: expected-dreamshrine-bc1
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: expected-dreamshrine-bc4
+          path: ./
+      - uses: actions/download-artifact@v7
+        with:
+          name: expected-dreamshrine-bc7
+          path: ./
+      - run: sudo apt update && sudo apt install mesa-vulkan-drivers
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+      - uses: NcStudios/VulkanCI@v1.0
+        if: ${{ matrix.os != 'ubuntu-latest' }}
+        with:
+          sdkVersion: 1.3.283.0
+      - run: chmod +x ./vk-compressor ./vkc-preview ./bin/java
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+      - run: |
+          ./vk-compressor dreamshrine.png --encoding bc1
+          ./vk-compressor dreamshrine.png --encoding bc4
+          ./vk-compressor dreamshrine.png --encoding bc7
+          ./vk-compressor AeropolitanScimitar.png --encoding kim1
+          ./vk-compressor EarthThick.png --encoding kim2 --kim2-bits-per-pixel 4
+          ./vk-compressor AeropolitanScimitar.png --encoding kim3
+          ./vkc-preview dreamshrine.bc1 --width 859 --height 556
+          ./vkc-preview dreamshrine.bc4 --width 859 --height 556
+          ./vkc-preview dreamshrine.bc7 --width 859 --height 556
+          ./vkc-preview AeropolitanScimitar.kim1
+          ./vkc-preview EarthThick.kim2
+          ./vkc-preview AeropolitanScimitar.kim3
+          mv AeropolitanScimitar.kim1 AeropolitanScimitarExact.kim1
+          mv EarthThick.kim2 EarthThickExact.kim2
+          mv AeropolitanScimitar.kim3 AeropolitanScimitarExact.kim3
+          ./vkc-preview AeropolitanScimitarExact.kim1 --exact-kim-decompression
+          ./vkc-preview EarthThickExact.kim2 --exact-kim-decompression
+          ./vkc-preview AeropolitanScimitarExact.kim3 --exact-kim-decompression
+        if: ${{ matrix.os != 'macos-latest' }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: test-helper
+          path: ./
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: 25
+          distribution: "zulu"
+      - run: |
+          java -jar vk-compressor.jar dreamshrine.png --encoding bc1
+          java -jar vk-compressor.jar dreamshrine.png --encoding bc4
+          java -jar vk-compressor.jar dreamshrine.png --encoding bc7
+          java -jar vk-compressor.jar AeropolitanScimitar.png --encoding kim1
+          java -jar vk-compressor.jar EarthThick.png --encoding kim2 --kim2-bits-per-pixel 4
+          java -jar vk-compressor.jar AeropolitanScimitar.png --encoding kim3
+          java -jar previewer.jar dreamshrine.bc1 --width 859 --height 556
+          java -jar previewer.jar dreamshrine.bc4 --width 859 --height 556
+          java -jar previewer.jar dreamshrine.bc7 --width 859 --height 556
+          java -jar previewer.jar AeropolitanScimitar.kim1
+          java -jar previewer.jar EarthThick.kim2
+          java -jar previewer.jar AeropolitanScimitar.kim3
+          mv AeropolitanScimitar.kim1 AeropolitanScimitarExact.kim1
+          mv EarthThick.kim2 EarthThickExact.kim2
+          mv AeropolitanScimitar.kim3 AeropolitanScimitarExact.kim3
+          java -jar previewer.jar AeropolitanScimitarExact.kim1 --exact-kim-decompression
+          java -jar previewer.jar EarthThickExact.kim2 --exact-kim-decompression
+          java -jar previewer.jar AeropolitanScimitarExact.kim3 --exact-kim-decompression
+        if: ${{ matrix.os == 'macos-latest' }}
+      - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc1.png dreamshrine.bc1.png 15.0
+      - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc4.png dreamshrine.bc4.png 5.0
+      - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc7.png dreamshrine.bc7.png 15.0
+      - run: java -jar ./test-helper-all.jar AeropolitanScimitar.png AeropolitanScimitar.kim1.png 1.0
+      - run: java -jar ./test-helper-all.jar expected-earth.kim2.png EarthThick.kim2.png 2.0
+      - run: java -jar ./test-helper-all.jar AeropolitanScimitar.png AeropolitanScimitar.kim3.png 2.0
+      - run: java -jar ./test-helper-all.jar AeropolitanScimitar.png AeropolitanScimitarExact.kim1.png 1.0
+      - run: java -jar ./test-helper-all.jar expected-earth.kim2.png EarthThickExact.kim2.png 2.0
+      - run: java -jar ./test-helper-all.jar AeropolitanScimitar.png AeropolitanScimitarExact.kim3.png 2.0
+      - name: Store actual BC1 image
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dreamshrine-${{ matrix.os }}.bc1.png
+          path: ./dreamshrine.bc1.png
+      - name: Store actual BC4 image
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dreamshrine-${{ matrix.os }}.bc4.png
+          path: ./dreamshrine.bc4.png
+      - name: Store actual BC7 image
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dreamshrine-${{ matrix.os }}.bc7.png
+          path: ./dreamshrine.bc7.png
+      - name: Store actual KIM1 image
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: AeropolitanScimitar-${{ matrix.os }}.kim1.png
+          path: ./AeropolitanScimitar.kim1.png
+      - name: Store actual KIM2 image
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EarthThick-${{ matrix.os }}.kim2.png
+          path: ./EarthThick.kim2.png
+      - name: Store actual KIM3 image
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: AeropolitanScimitar-${{ matrix.os }}.kim3.png
+          path: ./AeropolitanScimitar.kim3.png
+      - name: Store actual KIM1 image (exact)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: AeropolitanScimitarExact-${{ matrix.os }}.kim1.png
+          path: ./AeropolitanScimitarExact.kim1.png
+      - name: Store actual KIM2 image (exact)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EarthThickExact-${{ matrix.os }}.kim2.png
+          path: ./EarthThickExact.kim2.png
+      - name: Store actual KIM3 image (exact)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: AeropolitanScimitarExact-${{ matrix.os }}.kim3.png
+          path: ./AeropolitanScimitarExact.kim3.png

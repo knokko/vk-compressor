@@ -21,17 +21,29 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(push_constant) uniform PushConstants {
 	bool bigEndian;
+	bool signed;
 	uint sourceWidth;
 	uint sourceHeight;
 };
 
 #include "../../../../../../../../reverse-bytes.glsl"
 
+int maybeUnsignedToSigned(uint unsignedValue) {
+	int signedValue = int(unsignedValue);
+	if (signed && signedValue > 127) signedValue -= 256;
+	return signedValue;
+}
+
+uint maybeSignedToUnsigned(int signedValue) {
+	if (signedValue < 0) signedValue += 256;
+	return uint(signedValue);
+}
+
 void main()
 {
 	uint numBlocksX = sourceWidth / 4;
 	uint numBlocksY = sourceHeight / 4;
-	uvec4 rows[4];
+	ivec4 rows[4];
 
 	const uint blockX = gl_GlobalInvocationID.x;
 	const uint blockY = gl_GlobalInvocationID.y;
@@ -41,20 +53,20 @@ void main()
 	for (uint offsetY = 0; offsetY < 4; offsetY++) {
 		uint rawSourcePixels = sourceBuffer[blockX + numBlocksX * (4 * blockY + offsetY)];
 		if (bigEndian) rawSourcePixels = revertBytes(rawSourcePixels);
-		rows[offsetY][0] = rawSourcePixels & 255;
-		rows[offsetY][1] = (rawSourcePixels >> 8) & 255;
-		rows[offsetY][2] = (rawSourcePixels >> 16) & 255;
-		rows[offsetY][3] = (rawSourcePixels >> 24) & 255;
+		rows[offsetY][0] = maybeUnsignedToSigned(rawSourcePixels & 255);
+		rows[offsetY][1] = maybeUnsignedToSigned((rawSourcePixels >> 8) & 255);
+		rows[offsetY][2] = maybeUnsignedToSigned((rawSourcePixels >> 16) & 255);
+		rows[offsetY][3] = maybeUnsignedToSigned((rawSourcePixels >> 24) & 255);
 	}
 
-	uint rowsMin[4];
-	uint rowsMax[4];
+	int rowsMin[4];
+	int rowsMax[4];
 	for (uint offsetY = 0; offsetY < 4; offsetY++) {
 		rowsMin[offsetY] = min(min(rows[offsetY][0], rows[offsetY][1]), min(rows[offsetY][2], rows[offsetY][3]));
     	rowsMax[offsetY] = max(max(rows[offsetY][0], rows[offsetY][1]), max(rows[offsetY][2], rows[offsetY][3]));
 	}
-	uint minVal = min(min(rowsMin[0], rowsMin[1]), min(rowsMin[2], rowsMin[3]));
-	uint maxVal = max(max(rowsMax[0], rowsMax[1]), max(rowsMax[2], rowsMax[3]));
+	int minVal = min(min(rowsMin[0], rowsMin[1]), min(rowsMin[2], rowsMin[3]));
+	int maxVal = max(max(rowsMax[0], rowsMax[1]), max(rowsMax[2], rowsMax[3]));
 
 	// determine bias and emit color indices
 	// given the choice of maxVal/minVal, these indices are optimal:
@@ -65,7 +77,7 @@ void main()
 	float bias = ( dist < 8 ) ? ( dist - 1 ) : ( trunc( dist * 0.5f ) + 2 );
 	bias -= minVal * 7;
 
-	uint mask0 = maxVal | (minVal << 8);
+	uint mask0 = maybeSignedToUnsigned(maxVal) | (maybeSignedToUnsigned(minVal) << 8);
 	uint mask1 = 0;
 
 	for (uint offsetY = 0; offsetY < 4; offsetY++) {

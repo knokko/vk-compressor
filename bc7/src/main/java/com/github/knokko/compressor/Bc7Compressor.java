@@ -1,109 +1,122 @@
 package com.github.knokko.compressor;
 
+import com.github.knokko.boiler.utilities.ImageCoding;
 import org.lwjgl.system.Platform;
-import java.awt.image.BufferedImage;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.zip.ZipInputStream;
-import javax.imageio.ImageIO;
 
+import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Files;
+
+import static com.github.knokko.boiler.utilities.BoilerMath.nextMultipleOf;
+import static org.lwjgl.system.MemoryUtil.*;
+
+/**
+ * This class provides bindings to the BC7 encoder of
+ * <a href="https://github.com/knokko/basis_universal">my fork</a> of
+ * <a href="https://github.com/BinomialLLC/basis_universal">basis_universal</a>.
+ * You should use the static methods of this class to compress images to BC7.
+ */
 public class Bc7Compressor {
 
-	private static final File COMPRESSION_DIRECTORY;
-
 	static {
-		try {
-			COMPRESSION_DIRECTORY = Files.createTempDirectory("").toFile();
-		} catch (IOException failed) {
-			throw new Error("Failed to create temp directory", failed);
+		String architecture = switch (Platform.getArchitecture()) {
+			case X64 -> "-x64";
+			case ARM64 -> "-arm64";
+			default -> throw new UnsupportedOperationException(
+					"Unsupported architecture " + Platform.getArchitecture()
+			);
+		};
+		String nativeFileName = switch (Platform.get()) {
+			case WINDOWS -> "bc7-compressor" + architecture + ".dll";
+			case LINUX -> "libbc7-compressor" + architecture + ".so";
+			case MACOSX -> "bc7-compressor" + architecture + ".dylib";
+			default -> throw new UnsupportedOperationException("Unsupported OS " + Platform.get());
+		};
+
+		try (var nativeInput = Bc7Compressor.class.getResourceAsStream(nativeFileName)) {
+			assert nativeInput != null;
+			var nativeFile = Files.createTempFile("", nativeFileName);
+			byte[] bytes = nativeInput.readAllBytes();
+			Files.write(nativeFile, bytes);
+			System.load(nativeFile.toFile().getAbsolutePath());
+			nativeFile.toFile().deleteOnExit();
+		} catch (IOException cannotLoadNative) {
+			throw new Error("Cannot load native " + nativeFileName, cannotLoadNative);
 		}
-		COMPRESSION_DIRECTORY.deleteOnExit();
-
-		Platform os = Platform.get();
-		String fileName;
-
-		if (os == Platform.WINDOWS) fileName = "bc7enc.exe";
-		else if (os == Platform.LINUX) fileName = "bc7enc-linux";
-		else if (os == Platform.MACOSX) {
-			var arch = Platform.getArchitecture();
-			if (arch == Platform.Architecture.X64) fileName = "bc7enc-macos-x64";
-			else if (arch == Platform.Architecture.ARM64) fileName = "bc7enc-macos-arm64";
-			else throw new UnsupportedOperationException("Unsupported MacOS arch: " + arch);
-		} else throw new UnsupportedOperationException("Unsupported OS: " + os);
-
-		try (var input = Bc7Compressor.class.getResourceAsStream(fileName)) {
-			if (input == null) throw new Error("Can't find resource " + fileName);
-			File destination = new File(COMPRESSION_DIRECTORY + "/" + fileName);
-			Files.copy(input, destination.toPath());
-			if (os == Platform.LINUX || os == Platform.MACOSX) {
-				if (!destination.setExecutable(true)) throw new Error("Failed to make " + destination + " executable");
-			}
-			destination.deleteOnExit();
-		} catch (IOException failed) {
-			throw new Error("Failed to copy " + fileName + " to temp directory");
-		}
-
-		if (os == Platform.LINUX) {
-			File destination = new File(COMPRESSION_DIRECTORY + "/ispc");
-			try (
-					var input = Bc7Compressor.class.getResourceAsStream("ispc-linux.zip");
-					var output = Files.newOutputStream(destination.toPath())
-			) {
-				if (input == null) throw new Error("Can't find ispc-linux.zip");
-				var zipInput = new ZipInputStream(input);
-
-				var entry = zipInput.getNextEntry();
-				if (entry == null || !entry.getName().equals("ispc")) throw new Error("Unexpected entry " + entry);
-				output.write(input.readAllBytes());
-				output.flush();
-			} catch (IOException failed) {
-				throw new Error("Failed to extract ispc-linux.zip", failed);
-			}
-		}
+		initNative();
 	}
 
-	public static byte[] compressBc7(BufferedImage image) throws IOException {
-		String name = UUID.randomUUID().toString();
-		File source = new File(COMPRESSION_DIRECTORY + "/" + name + ".png");
-		source.deleteOnExit();
+	/**
+	 * These flags can be used as the {@code bc7fFlags} parameter of {@link #compressNative},
+	 * {@link #compressRgbaImageData}, and {@link #compressBufferedImage}.
+	 * Alternatively, you can make your own configuration of flags.
+	 */
+	public static final int FLAGS_DEFAULT_FASTEST = 128,
+							FLAGS_DEFAULT_FASTER = 176,
+							FLAGS_DEFAULT_FAST = 179,
+							FLAGS_DEFAULT = 255,
+							FLAGS_DEFAULT_SLOWER = 1023,
+							FLAGS_DEFAULT_SLOWEST = 3967;
 
-		ImageIO.write(image, "PNG", source);
-		var compressionProcess = startCompressionProcess(name);
-		try {
-			if (compressionProcess.waitFor() != 0) {
-				try (var errorScanner = compressionProcess.errorReader()) {
-					throw new IOException("Bc7 compression failed: " + errorScanner.lines().collect(Collectors.joining()));
-				}
-			}
-		} catch (InterruptedException e) {
-			throw new IOException(e);
-		}
+	private static native void initNative();
 
-		File destination = new File(COMPRESSION_DIRECTORY + "/" + name + ".dds");
+	/**
+	 * Compresses a {@code width} x {@code height} RGBA image whose first pixel is stored at memory address
+	 * {@code sourceAddress}, and writes the first compressed byte to {@code destinationAddress}.
+	 * @param bc7fFlags The bc7f flags, e.g. {@link #FLAGS_DEFAULT}
+	 * @param sourceAddress The memory address where the Red component of the top-left pixel is stored
+	 * @param width The width (in pixels) of the image that is stored at {@code sourceAddress}
+	 * @param height The height (in pixels) of the image that is stored at {@code sourceAddress}
+	 * @param destinationAddress The memory address where this method will write the first compressed byte
+	 */
+	public static native void compressNative(
+			int bc7fFlags, long sourceAddress,
+			int width, int height, long destinationAddress
+	);
 
-		try (var input = Files.newInputStream(destination.toPath())) {
-			input.skipNBytes(148);
-			return input.readAllBytes();
-		} finally {
-			if (!source.delete()) System.out.println("Warning: failed to delete " + source);
-			if (!destination.delete()) System.out.println("Warning: failed to delete " + destination);
-		}
+	/**
+	 * Compresses a {@code width} x {@code height} RGBA image whose pixel data is stored in {@code sourceImageData}.
+	 * @param bc7fFlags The bc7f compression flags, e.g. {@link #FLAGS_DEFAULT}
+	 * @param sourceImageData The pixel data of the image to be compressed.
+	 *                        Its size should be {@code 4 * width * height} bytes.
+	 * @param width The width (in pixels) of the image to be compressed
+	 * @param height The height (in pixels) of the image to be compressed
+	 * @param destinationCompressedData The buffer where this method will store the compressed BC7 data
+	 */
+	public static void compressRgbaImageData(
+			int bc7fFlags, ByteBuffer sourceImageData, int width, int height, ByteBuffer destinationCompressedData
+	) {
+		long sourceAddress = memAddress(sourceImageData);
+		if (sourceAddress % 4L != 0L) throw new IllegalArgumentException("sourceImageData must be aligned to 4 bytes");
+		compressNative(
+				bc7fFlags, sourceAddress,
+				width, height, memAddress(destinationCompressedData)
+		);
 	}
 
-	private static Process startCompressionProcess(String name) throws IOException {
-		Platform os = Platform.get();
+	/**
+	 * Compresses {@code sourceImage} using the given {@code bc7fFlags}, and returns the compressed data as
+	 * {@code byte[]}.
+	 * @param bc7fFlags The bc7f compression flags, e.g. {@link #FLAGS_DEFAULT}
+	 * @param sourceImage The image to be compressed
+	 * @return The compressed BC7 data
+	 */
+	public static byte[] compressBufferedImage(int bc7fFlags, BufferedImage sourceImage) {
+		ByteBuffer rgbaData = memCalloc(4 * sourceImage.getWidth() * sourceImage.getHeight());
+		ImageCoding.encodeBufferedImage(rgbaData, sourceImage);
+		rgbaData.flip();
 
-		String baseCommand;
-		if (os == Platform.WINDOWS) baseCommand = COMPRESSION_DIRECTORY + "/bc7enc.exe";
-		else if (os == Platform.LINUX) baseCommand = "./bc7enc-linux";
-		else if (Platform.getArchitecture() == Platform.Architecture.ARM64) baseCommand = "./bc7enc-macos-arm64";
-		else baseCommand = "./bc7enc-macos-x64";
+		int paddedWidth = nextMultipleOf(sourceImage.getWidth(), 4);
+		int paddedHeight = nextMultipleOf(sourceImage.getHeight(), 4);
+		ByteBuffer compressedData = memCalloc(paddedWidth * paddedHeight);
+		compressRgbaImageData(bc7fFlags, rgbaData, sourceImage.getWidth(), sourceImage.getHeight(), compressedData);
 
-		var processBuilder = new ProcessBuilder(baseCommand, "./" + name + ".png", "-g", "-q");
-		processBuilder.directory(COMPRESSION_DIRECTORY);
-		return processBuilder.start();
+		memFree(rgbaData);
+
+		byte[] compressedArray = new byte[compressedData.capacity()];
+		compressedData.get(compressedArray);
+		memFree(compressedData);
+		return compressedArray;
 	}
 }

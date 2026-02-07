@@ -57,9 +57,11 @@ public class Kim1Decompressor {
 		int colorIndex = readInt(32 + 8 * numColors * numChannels + bitsPerPixel * (x + y * width), bitsPerPixel);
 
 		int color = readInt(32 + colorIndex * 8 * numChannels, 8 * numChannels);
+
 		if (numChannels < 2) color |= red(color) << 8;
 		if (numChannels < 3) color |= green(color) << 16;
 		if (numChannels < 4) color |= 255 << 24;
+
 		return color;
 	}
 

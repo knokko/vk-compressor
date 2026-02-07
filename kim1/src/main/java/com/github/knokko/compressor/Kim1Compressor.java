@@ -108,17 +108,17 @@ public class Kim1Compressor {
 
 		// Color table
 		var colorEntries = new ArrayList<>(colorTable.entrySet());
+		var bitWriter = new BitWriter(destination);
 		colorEntries.sort(Comparator.comparingInt(Map.Entry::getValue));
 		for (var entry : colorEntries) {
 			int color = entry.getKey();
-			destination.put(red(color));
-			if (numChannels >= 2) destination.put(green(color));
-			if (numChannels >= 3) destination.put(blue(color));
-			if (numChannels >= 4) destination.put(alpha(color));
+			bitWriter.write(red(color) & 0xFF, 8);
+			if (numChannels >= 2) bitWriter.write(green(color) & 0xFF, 8);
+			if (numChannels >= 3) bitWriter.write(blue(color) & 0xFF, 8);
+			if (numChannels >= 4) bitWriter.write(alpha(color) & 0xFF, 8);
 		}
 
 		// Color indices
-		var bitWriter = new BitWriter(destination);
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) {
 				int color = pixelBuffer[x + width * y];
@@ -128,6 +128,5 @@ public class Kim1Compressor {
 		}
 
 		bitWriter.flush();
-		while (destination.position() % 4 != 0) destination.put((byte) 0);
 	}
 }

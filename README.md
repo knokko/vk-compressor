@@ -1,65 +1,146 @@
 # vk-compressor
-## Vulkan image compressor, written in Java
-This library provides methods and classes to deal with some
-compressed (Vulkan) image formats. Currently, it provides:
+## CLI and API for compressing images to some GPU formats
+This tool/library provides compressors for several standardized GPU image formats:
 - a [BC1 image compressor](bc1/docs.md) using a compute shader
 - a [BC4 image compressor](bc4/docs.md) using a compute shader
-- a [wrapper of a BC7 image compressor](bc7/docs.md)
-Note that this one does not work on all Linux distro's, and
-that it may require `sudo apt install libomp-dev`
+- [bindings to a BC7 image compressor](bc7/docs.md)
+
+Furthermore, this tool provides compressors for some of my own 'image formats':
 - a ['kim1' image compressor](kim1/docs.md), decompressor, and sampler.
-The 'kim1' format is a format that I invented for small images
-where many pixels have the same color as another pixel.
 - a ['kim2' image compressor](kim2/docs.md), decompressor, and sampler.
-The 'kim2' format is a format that I invented for images where
-each pixel has approximately the same color,
-but with a possibly different intensity.
 - a ['kim3' image compressor](kim3/docs.md), decompressor, and sampler.
-The 'kim3' format is an alternative to the kim1 format that
-is cheaper to sample on old integrated GPUs, but takes a bit
-more space.
 
-This library requires
-[vk-boiler 5.0](https://github.com/knokko/vk-boiler).
+### CLI
+The CLI is the easiest way to use this tool.
+You can download the CLI tool from [the releases](https://github.com/knokko/vk-compressor/releases).
+- For Windows x64 and Linux x64, a native executable is provided.
+- For all other platforms, you will have to use the JAR version instead.
 
-### Performance
-You can run the benchmarks by using e.g. `./gradlew bc1Benchmark`.
-The results on my PC (without multithreading) are:
-- The bc1 encoder can compress ~200M pixels in ~4.3ms,
-  which is ~47M pixels per millisecond.*
-- The bc4 encoder can compress ~200M pixels in ~0.7ms,
-  which is ~300M pixels per millisecond.*
-- The bc7 encoder can compress ~4M pixels in ~3.1 seconds,
-  which is ~1.3k pixels per millisecond .
-  (but note that encoding bc7 images is inherently difficult)
-- The kim1 encoder can compress ~100M pixels in ~2000ms,
-  which is ~50k pixels per millisecond.
-- The kim2 encoder can compress ~580M pixels in ~2000ms,
-  which is ~290k pixels per millisecond.
-- The kim3 encoder can compress ~100M pixels in ~1900ms,
-  which is ~55k pixels per millisecond.
+For the native executable, the usage should be something like this:
+```shell
+./vk-compressor some-image.png --encoding bc7
+```
+which should compress `some-image.png`, and store the compressed version in `some-image.bc7`.
+Note that `some-image.bc7` will only contain the *payload* of the image, but *not* the width or height.
+It only contains the data that you want to copy with e.g. `vkCmdCopyBufferToImage`.
+For the KIM image formats, the payload *does* include the size though.
 
-\* I only count the time needed for *compressing* the image,
-*not* the time to load the source image from disk,
-or to save the compressed image to disk.
-For bc1/bc4 encoding, saving/loading the image(s) from disk
-will normally take much more time than the compression itself,
-(which happens on the GPU)
-so this throughput can probably not be reached in practice.
+The equivalent command for the JAR version would be:
+```shell
+java -jar vk-compressor.jar some-image.png --encoding bc7
+```
+Alternatively, the following command could be used in development:
+```shell
+./gradlew cli --args="some-image.png --encoding bc7"
+```
 
-### Adding vk-compressor as dependency
-#### Java version
-This project requires Java 17 or later (Java 17 and 21
-are tested in CI).
+To 'test' your compressed images, you can preview them using e.g. this command:
+```shell
+./vkc-preview some-image.bc7 --width 123 --height 123 --gui
+```
+The equivalent command for the JAR version would be:
+```shell
+java -jar previewer.jar some-image.bc7 --width 123 --height 123 --gui
+```
+Alternatively, the following command could be used in development:
+```shell
+./gradlew preview --args="some-image.bc7 --width 123 --height 123 --gui"
+```
 
-#### LWJGL and vk-boiler
-While this project is compiled against LWJGL and `vk-boiler`,
-it does **not** bundle them, so you still need to declare
-the LWJGL and `vk-boiler` dependencies yourself (hint: use
-[LWJGL customizer](https://www.lwjgl.org/customize)
-). This approach allows you to control which version of
-LWJGL and `vk-boiler` you want to use (as long as they
-are compatible).
+To learn about the remaining options, use `./vk-compressor --help` or `./vkc-preview --help`.
+Note that `vk-compressor` supports multiple files per invocation, whereas `vkc-preview` does not.
+
+#### CLI performance
+The `--benchmark` option can be used to measure the performance of the compressor.
+
+##### BC compression performance
+The BC compression results are:
+- BC1:
+  ```
+  ./vk-compressor /home/knokko/mardek/flash/all-shapes-x2/*.png --encoding bc1 --benchmark --num-threads 10 --batch-size 500`
+  Processed 759112760 pixels from 15565 files
+  Reading took 1059ms
+  Processing took 2278ms
+  Writing took 823ms
+  ```
+- BC4:
+  ```
+  ./vk-compressor /home/knokko/mardek/flash/all-shapes-x2/*.png --encoding bc4 --benchmark --num-threads 10 --batch-size 500
+  Processed 759112760 pixels from 15565 files
+  Reading took 806ms
+  Processing took 886ms
+  Writing took 819ms
+  ```
+- BC7 (default):
+  ```
+  ./vk-compressor /home/knokko/mardek/flash/all-shapes-x2/*.png --encoding bc7 --benchmark --num-threads 10 --batch-size 500
+  Processed 759112760 pixels from 15565 files
+  Reading took 1160ms
+  Processing took 1217ms
+  Writing took 699ms
+  ```
+- BC7 (high quality):
+  ```
+  ./vk-compressor /home/knokko/mardek/flash/all-shapes-x2/*.png --encoding bc7 --benchmark --num-threads 10 --batch-size 500 --bc7f-flags slowest
+  Processed 759112760 pixels from 15565 files
+  Reading took 1128ms
+  Processing took 5915ms
+  Writing took 656ms
+  ```
+
+Note that the BC1 and BC4 compressor run on the GPU. Most of the 'processing time' is spent on transferring the pixels
+from the CPU to the GPU, and on transferring the compressed data from the GPU to the CPU.
+The time spent during the compute shader itself is negligible.
+From my rough measurements, the compute speed appears to be ~50 *million* pixels per *milli*second for BC1,
+and ~300 *million* pixels per *milli*second for BC4. (Roughly 250 GB per second in most cases.)
+Unfortunately, this speed can only be achieved by using the API rather than the CLI,
+and requires both the input and output to already be on the GPU.
+Even if the whole GPU memory would be filled with input images and output space,
+compressing all of it would take much less than a second.
+The only real limit for BC1 and BC4 is the number of images that you can send to the GPU (or generate on the GPU).
+
+##### KIM compression performance
+Since the KIM image format only supports images with specific limits, I used a different (much smaller) test set.
+- KIM1:
+  ```
+  ./vk-compressor /home/knokko/vk-compressor/test-helper/src/main/resources/com/github/knokko/compressor/mardek/*.png --encoding kim1 --benchmark --num-threads 10
+  Processed 25344 pixels from 99 files
+  Reading took 91ms
+  Processing took 11ms
+  Writing took 12ms
+  ```
+- KIM2:
+  ```
+  ./vk-compressor /home/knokko/vk-compressor/test-helper/src/main/resources/com/github/knokko/compressor/mardek/*.png --encoding kim2 --benchmark --num-threads 10 --kim2-bits-per-pixel 8
+  Processed 25344 pixels from 99 files
+  Reading took 91ms
+  Processing took 12ms
+  Writing took 6ms
+  ```
+- KIM3:
+  ```
+  ./vk-compressor /home/knokko/vk-compressor/test-helper/src/main/resources/com/github/knokko/compressor/mardek/*.png --encoding kim3 --benchmark --num-threads 10
+  Processed 25344 pixels from 99 files
+  Reading took 91ms
+  Processing took 8ms
+  Writing took 6ms
+  ```
+It looks like KIM compression is slightly faster than BC compression. For reference, using BC7 on this same (small) dataset:
+- BC7 (default):
+  ```
+  ./vk-compressor /home/knokko/vk-compressor/test-helper/src/main/resources/com/github/knokko/compressor/mardek/*.png --encoding bc7 --benchmark --num-threads 10
+  Processed 25344 pixels from 99 files
+  Reading took 88ms
+  Processing took 29ms
+  Writing took 6ms
+  ```
+
+### API
+The API is harder to use than the CLI, but is occasionally useful,
+and required to get very high BC1/BC4 compression speed.
+Since this library is written in Java, only Java applications can use the API.
+Java 21 or later is required.
+To start using the API, `vk-compressor` must be added as dependency, using either Gradle or Maven:
 
 #### Modules
 This project is split into 6 gradle modules: 1 for each
@@ -73,12 +154,20 @@ for each module you want.
 ...
 repositories {
   ...
-  maven { url 'https://jitpack.io' }
+  maven {
+    name = "knokko-reposilite"
+    url = "https://49.12.188.159:8080/releases/"
+    content {
+        includeGroup "com.github.knokko"
+        includeGroup "com.github.knokko.vk-compressor"
+    }
+  }
 }
 ...
 dependencies {
   ...
-  implementation 'com.github.knokko.vk-compressor:bc1:v0.6.0'
+  // The next line adds the BC1 compressor. Change it to get another compressor.
+  implementation "com.github.knokko.vk-compressor:bc1:1.0.0"
 }
 ```
 
@@ -88,14 +177,27 @@ dependencies {
 <repositories>
   ...
   <repository>
-    <id>jitpack.io</id>
-    <url>https://jitpack.io</url>
+    <id>knokko-reposilite</id>
+    <name>Knokko Reposilite</name>
+    <url>https://49.12.188.159:8080/releases/</url>
   </repository>
 </repositories>
 ...
 <dependency>
   <groupId>com.github.knokko.vk-compressor</groupId>
-  <artifactId>kim2</artifactId>
-  <version>v0.6.0</version>
+  <!-- The next line adds the BC1 compressor. Change it to get another compressor. -->
+  <artifactId>bc1</artifactId>
+  <version>1.0.0</version>
 </dependency>
 ```
+
+#### Additional dependencies
+This library requires [LWJGL](https://www.lwjgl.org) to be available at runtime,
+but it does *not* bundle LWJGL (so that *you* can choose the LWJGL version).
+All compressors require the 'core' of LWJGL, and the BC1 and BC4 compressors also require `lwjgl-vulkan`.
+This library also bundles [vk-boiler 5.4](https://github.com/knokko/vk-boiler).
+
+#### Using the API
+Each of the compressor has its own docs, which tell you how to use it:
+[bc1](./bc1/docs.md), [bc4](./bc4/docs.md), [bc7](./bc7/docs.md),
+[kim1](./kim1/docs.md), [kim2](./kim2/docs.md), [kim3](./kim3/docs.md).

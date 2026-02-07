@@ -49,7 +49,23 @@ provided sampling function to 'sample' it. Instructions
 for compression, decompression, and sampling are given
 below.
 
-## Compressing
+## Compressing using the CLI
+To compressor `some-image.png`, and store the compressed data in `some-image.kim2`, use the following command:
+```shell
+./vk-compressor some-image.png --encoding kim2 --kim2-bits-per-pixel 8
+```
+The `kim2-bit-per-pixel` argument must be 1, 2, 4, or 8.
+
+To 'preview' it, you can run:
+```shell
+./vkc-preview some-image.kim2 --gui
+```
+Note that the size is always included in `kim2` files,
+so the `--width` and `--height` arguments of `vkc-preview` are not needed.
+The `kim2-bits-per-pixel` is also stored in the `kim2` files,
+so there is no need to repeat it in the `vkc-preview` command.
+
+## Compressing using the API
 The `Kim2Compressor` can be used to convert uncompressed
 images to kim2. You need to use one of its static `compress`
 methods to put the compressed data in an `IntBuffer`.
@@ -57,7 +73,7 @@ methods to put the compressed data in an `IntBuffer`.
 You can use the `predictIntSize` method to predict the
 minimum capacity that your `IntBuffer` must have.
 
-## Decompressing
+## Decompressing using the API
 The `Kim2Decompressor` can be used to decode compressed
 kim2 data, and restore the original image data. You need
 to use one of its static `decompress` methods for this.
@@ -66,7 +82,7 @@ You can also use the static `getWidth()`, `getHeight()`,
 or `getBitsPerPixel()` methods to query basic information
 about compressed kim2 images.
 
-## Sampling
+## Sampling from a (fragment) shader
 If you store compressed kim2 data in a uniform buffer or
 storage buffer, you can sample the data from shaders
 (just like you can sample from regular `VkImage`s).

@@ -1,52 +1,90 @@
-import org.gradle.internal.os.OperatingSystem
+import proguard.gradle.ProGuardTask
+
+buildscript {
+	repositories {
+		mavenCentral()
+	}
+
+	dependencies {
+		classpath "com.guardsquare:proguard-gradle:7.8.2"
+	}
+}
 
 plugins {
 	id "java"
+	id "maven-publish"
+	id "com.gradleup.shadow" version "9.3.1"
 }
 
-java {
-	withSourcesJar()
+for (publishProject in [":bc1", ":bc4", ":bc7", ":kim1", ":kim2", ":kim3"]) {
+	project(publishProject) {
+		apply plugin: "java"
+		apply plugin: "maven-publish"
+
+		java {
+			withSourcesJar()
+		}
+
+		publishing {
+			repositories {
+				maven {
+					name = "knokkoReposiliteVkCompressor"
+					url = "https://49.12.188.159:8080/releases/"
+					credentials(PasswordCredentials)
+					authentication {
+						basic(BasicAuthentication)
+					}
+				}
+			}
+			publications {
+				mavenJava(MavenPublication) {
+					groupId = "com.github.knokko.vk-compressor"
+					version = "1.0.0-pre2"
+					from components.java
+				}
+			}
+		}
+	}
 }
 
 allprojects {
 	apply plugin: "java"
 
 	java {
-		sourceCompatibility = "17"
-		targetCompatibility = "17"
+		sourceCompatibility = 21
+		targetCompatibility = 21
 	}
 
 	repositories {
 		mavenCentral()
-		maven { url "https://central.sonatype.com/repository/maven-snapshots" }
-		maven { url 'https://jitpack.io' }
+
+		maven {
+			name = "sonatype"
+			url = "https://central.sonatype.com/repository/maven-snapshots"
+			content {
+				includeGroup "org.lwjgl"
+			}
+		}
+
+		maven {
+			name = "knokko-reposilite"
+			url = "https://49.12.188.159:8080/releases/"
+			content {
+				includeGroup "com.github.knokko"
+			}
+		}
 	}
 
-	project.ext.jomlVersion = "1.10.1"
-	project.ext.lwjglVersion = "3.4.0-SNAPSHOT"
-	project.ext.coroutinesVersion = "1.7.3"
-	project.ext.boilerVersion = "v5.0.0"
-	switch (OperatingSystem.current()) {
-		case OperatingSystem.LINUX:
-			def osArch = System.getProperty("os.arch")
-			project.ext.lwjglNatives = osArch.startsWith("arm") || osArch.startsWith("aarch64")
-					? "natives-linux-${osArch.contains("64") || osArch.startsWith("armv8") ? "arm64" : "arm32"}"
-					: "natives-linux"
-			break
-		case OperatingSystem.WINDOWS:
-			def osArch = System.getProperty("os.arch")
-			project.ext.lwjglNatives = osArch.contains("64")
-					? "natives-windows${osArch.startsWith("aarch64") ? "-arm64" : ""}"
-					: "natives-windows-x86"
-			break
-		case OperatingSystem.MAC_OS:
-			project.ext.lwjglNatives = System.getProperty("os.arch").startsWith("aarch64") ? "natives-macos-arm64" : "natives-macos"
-			break
-	}
+	project.ext.lwjglVersion = "3.4.2-SNAPSHOT"
+	project.ext.boilerVersion = "5.5.0"
+	project.ext.lwjglNatives = [
+			"natives-linux", "natives-linux-arm32", "natives-linux-arm64",
+			"natives-linux-ppc64le", "natives-linux-riscv64", "natives-freebsd",
+			"natives-windows", "natives-windows-x86", "natives-windows-arm64",
+			"natives-macos", "natives-macos-arm64"
+	]
 
 	dependencies {
-		implementation "com.github.knokko:vk-boiler:$boilerVersion"
-
 		testImplementation project(":test-helper")
 		testImplementation platform("org.junit:junit-bom:5.10.0")
 		testImplementation "org.junit.jupiter:junit-jupiter:5.10.0"
@@ -57,12 +95,13 @@ allprojects {
 		testImplementation "org.lwjgl:lwjgl-vma"
 		testImplementation "org.lwjgl:lwjgl-vulkan"
 		testImplementation "org.lwjgl:lwjgl-glfw"
-		testImplementation "org.joml:joml:${jomlVersion}"
 
-		testRuntimeOnly "org.lwjgl:lwjgl::$lwjglNatives"
-		testRuntimeOnly "org.lwjgl:lwjgl-glfw::$lwjglNatives"
-		testRuntimeOnly "org.lwjgl:lwjgl-vma::$lwjglNatives"
-		if (lwjglNatives == "natives-macos") testRuntimeOnly "org.lwjgl:lwjgl-vulkan::$lwjglNatives"
+		for (natives in lwjglNatives) {
+			testRuntimeOnly "org.lwjgl:lwjgl::$natives"
+			testRuntimeOnly "org.lwjgl:lwjgl-glfw::$natives"
+			testRuntimeOnly "org.lwjgl:lwjgl-vma::$natives"
+			if (natives.contains("macos")) testRuntimeOnly "org.lwjgl:lwjgl-vulkan::$natives"
+		}
 
 		test {
 			useJUnitPlatform()
@@ -70,58 +109,96 @@ allprojects {
 	}
 }
 
+apply plugin: "com.gradleup.shadow"
+
+repositories {
+	maven { url "https://mvnrepository.com/artifact/commons-cli/commons-cli" }
+}
+
 dependencies {
-	compileOnly platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
-	compileOnly "org.lwjgl:lwjgl"
-	compileOnly "org.lwjgl:lwjgl-vulkan"
-	compileOnly "org.joml:joml:${jomlVersion}"
+	implementation "commons-cli:commons-cli:1.8.0"
+	implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+	implementation "org.lwjgl:lwjgl"
+	implementation "org.lwjgl:lwjgl-stb"
+	implementation "org.lwjgl:lwjgl-vulkan"
 
-	testImplementation project(":kim1")
-	testImplementation project(":kim2")
-	testImplementation project(":kim3")
-	testImplementation project(":bc1")
-	testImplementation project(":bc4")
-	testImplementation project(":bc7")
+	implementation "com.github.knokko:vk-boiler:$boilerVersion"
+
+	implementation project(":kim1")
+	implementation project(":kim2")
+	implementation project(":kim3")
+	implementation project(":bc1")
+	implementation project(":bc4")
+	implementation project(":bc7")
+
+	for (natives in lwjglNatives) {
+		runtimeOnly "org.lwjgl:lwjgl::$natives"
+		runtimeOnly "org.lwjgl:lwjgl-stb::$natives"
+		if (natives.contains("macos")) runtimeOnly "org.lwjgl:lwjgl-vulkan::$natives"
+	}
 }
 
-tasks.register("demo", JavaExec) {
-	description = "Runs a simple demo showing kim1, bc1, bc4, and bc7 compression"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Demo"
+shadowJar {
+	manifest {
+		attributes ("Main-Class": "com.github.knokko.compressor.CompressorCli")
+		attributes ("Enable-Native-Access": "ALL-UNNAMED")
+		attributes ("Add-Exports": "java.base/jdk.internal.misc")
+	}
 }
 
-tasks.register("kim1Benchmark", JavaExec) {
-	description = "Runs a kim1 compression speed benchmark"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Kim1Benchmark"
+tasks.register("cli", JavaExec) {
+	description = "Runs the CLI: use e.g. ./gradlew cli --args=\"--encoding bc1 image1.png\""
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.CompressorCli"
 }
 
-tasks.register("kim2Benchmark", JavaExec) {
-	description = "Runs a kim2 compression speed benchmark"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Kim2Benchmark"
-}
+tasks.register("proguardCli", ProGuardTask) {
+	dependsOn "shadowJar"
+	injars "build/libs/vk-compressor-all.jar"
+	outjars "build/libs/vk-compressor.jar"
 
-tasks.register("kim3Benchmark", JavaExec) {
-	description = "Runs a kim3 compression speed benchmark"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Kim3Benchmark"
-}
+	// I need java.base, and LWJGL needs jdk.unsupported (Unsafe)
+	libraryjars "${System.getProperty("java.home")}/jmods/java.base.jmod"
+	libraryjars "${System.getProperty("java.home")}/jmods/jdk.unsupported.jmod"
 
-tasks.register("bc1Benchmark", JavaExec) {
-	description = "Runs a bc1 compression speed benchmark"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Bc1Benchmark"
-}
+	// I just want to remove unused classes:
+	// I do NOT want to obfuscate the program, since that will ruin stacktraces
+	dontobfuscate()
+	dontoptimize()
 
-tasks.register("bc4Benchmark", JavaExec) {
-	description = "Runs a bc4 compression speed benchmark"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Bc4Benchmark"
-}
+	// Don't delete the main method
+	keep "class com.github.knokko.compressor.CompressorCli {*;}"
 
-tasks.register("bc7Benchmark", JavaExec) {
-	description = "Runs a bc7 compression speed benchmark"
-	classpath = sourceSets.test.runtimeClasspath
-	mainClass = "com.github.knokko.compressor.Bc7Benchmark"
+	// LWJGL system is magical, and will segfault if we remove its stuff
+	keep "class org.lwjgl.system.** {*;}"
+
+	// The error codes are convenient for VulkanFailureException
+	keepclassmembers "class org.lwjgl.vulkan.VK* { public <fields>; }"
+
+	// These suggestive annotations are not interesting
+	dontwarn "org.jspecify.annotations.**"
+
+	// This program doesn't use OpenXR (virtual reality)
+	dontwarn "com.github.knokko.boiler**.xr**"
+	dontwarn "com.github.knokko.boiler.exceptions.OpenXrFailureException"
+
+	// The CLI doesn't use SDL or GLFW
+	dontwarn "org.lwjgl.glfw.**"
+	dontwarn "org.lwjgl.sdl.**"
+
+	// We don't use VMA
+	dontwarn "org.lwjgl.util.vma.**"
+
+	// Some methods of MappedVkbBuffer/ImageCoding use java.awt.BufferedImage, but it's fine since I don't call them
+	dontwarn "com.github.knokko.boiler.buffers.MappedVkbBuffer"
+	dontwarn "com.github.knokko.boiler.utilities.ImageCoding"
+
+	// The FrustumCuller of vk-boiler uses Vector3f, but we don't use the FrustumCuller
+	dontwarn "com.github.knokko.boiler.culling.FrustumCuller"
+	dontwarn "com.github.knokko.boiler.culling.FrustumCuller\$Plane"
+
+	// The CLI does not use BufferedImage or ImageIO
+	dontwarn "java.awt.image.BufferedImage"
+	dontwarn "java.awt.Color"
+	dontwarn "javax.imageio.ImageIO"
 }

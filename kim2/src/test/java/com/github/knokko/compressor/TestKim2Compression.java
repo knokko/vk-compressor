@@ -190,7 +190,7 @@ public class TestKim2Compression {
 
 			BufferedImage recovered = decompress(compressed);
 			BufferedImage expected = recoveredEarth(bitsPerPixel);
-			assertImageEquals(expected, recovered);
+			assertImageEquals(expected, recovered, 1.0);
 		}
 	}
 
@@ -323,16 +323,26 @@ public class TestKim2Compression {
 		commands.destroy();
 
 		var recoveredImage = ImageCoding.decodeBufferedImage(recovered.byteBuffer(), targetImage.width, targetImage.height);
-		assertImageEquals(recoveredEarth(1), recoveredImage.getSubimage(0, 0, input.getWidth(), input.getHeight()));
-		assertImageEquals(recoveredEarth(2), recoveredImage.getSubimage(
-				input.getWidth(), 0, input.getWidth(), input.getHeight()
-		));
-		assertImageEquals(recoveredEarth(4), recoveredImage.getSubimage(
-				0, input.getHeight(), input.getWidth(), input.getHeight()
-		));
-		assertImageEquals(recoveredEarth(8), recoveredImage.getSubimage(
-				input.getWidth(), input.getHeight(), input.getWidth(), input.getHeight()
-		));
+		assertImageEquals(
+				recoveredEarth(1),
+				recoveredImage.getSubimage(0, 0, input.getWidth(), input.getHeight()),
+				1.0
+		);
+		assertImageEquals(
+				recoveredEarth(2),
+				recoveredImage.getSubimage(input.getWidth(), 0, input.getWidth(), input.getHeight()),
+				1.0
+		);
+		assertImageEquals(
+				recoveredEarth(4),
+				recoveredImage.getSubimage(0, input.getHeight(), input.getWidth(), input.getHeight()),
+				1.0
+		);
+		assertImageEquals(
+				recoveredEarth(8),
+				recoveredImage.getSubimage(input.getWidth(), input.getHeight(), input.getWidth(), input.getHeight()),
+				1.0
+		);
 
 		vkDestroyDescriptorPool(boiler.vkDevice(), descriptorPool, null);
 		vkDestroyDescriptorSetLayout(boiler.vkDevice(), descriptorLayout.vkDescriptorSetLayout, null);

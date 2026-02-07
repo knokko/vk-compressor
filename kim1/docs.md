@@ -11,21 +11,21 @@ colors is rather small, for instance
 - If you store this image uncompressed, it would take
 `4 * 16 * 16 = 1024` bytes.
 - When I save it as PNG file, it takes 455 bytes.
-- With BC1 compression, it would take 128 bytes,
-but it would cost a lot of detail.
+- With BC1 compression, it would take 128 bytes, but it would cost a lot of detail.
+- With BC7 compression, it would take 256 bytes, but it may still lose some details.
 - In the kim1 format, it takes 132 bytes instead.
 
 Thus, the kim1 format is very effective for such images
 because it is **lossless** and takes up little space.
 Furthermore, it can be sampled by shaders, just like
-BC1.
+BC1 and BC7.
 
 Please note that this format is only suitable when the
 number of distinct colors is small, which only holds for
 simple images like the one presented above. This format
 is **inefficient** for any other type of image, and
 therefor quite niche. Luckily, such other images can
-usually be compressed well using BC1.
+usually be compressed well using BC1 or BC7.
 
 Since I invented this format myself, it is **not** a
 standard (Vulkan) image format. Therefor, you need to
@@ -34,7 +34,19 @@ provided sampling function to 'sample' it. Instructions
 for compression, decompression, and sampling are given
 below.
 
-## Compressing
+## Compressing with the CLI
+To compressor `some-image.png`, and store the compressed data in `some-image.kim1`, use the following command:
+```shell
+./vk-compressor some-image.png --encoding kim1
+```
+To 'preview' it, you can run:
+```shell
+./vkc-preview some-image.kim1 --gui
+```
+Note that the size is always included in `kim1` files,
+so the `--width` and `--height` arguments of `vkc-preview` are not needed.
+
+## Compressing with the API
 The `Kim1Compressor` can be used to convert uncompressed
 RGBA images to kim1. You need to use its public
 constructor, which takes a `ByteBuffer` (for the data),
@@ -48,7 +60,7 @@ compress the data, you need to call its `compress` method,
 which requires a `ByteBuffer` that has (at least)
 `4 * intSize` remaining bytes.
 
-## Decompressing
+## Decompressing with the API
 The `Kim1Decompressor` can be used to decode compressed
 kim1 data, and restore the original image data.
 You need to use its public constructor, whose only
@@ -60,7 +72,7 @@ actually decompress it, you need to call the
 `getColor(x, y)` for each pixel that you want to recover
 (all pixels if you want the original image back).
 
-## Sampling
+## Sampling from a (fragment) shader
 If you store compressed kim1 data in a uniform buffer or
 storage buffer, you can sample the data from shaders
 (just like you can sample from regular `VkImage`s).

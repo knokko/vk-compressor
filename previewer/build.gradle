@@ -1,0 +1,98 @@
+import proguard.gradle.ProGuardTask
+
+buildscript {
+	repositories {
+		mavenCentral()
+	}
+
+	dependencies {
+		classpath "com.guardsquare:proguard-gradle:7.8.2"
+	}
+}
+
+apply plugin: "com.gradleup.shadow"
+
+repositories {
+	maven { url "https://mvnrepository.com/artifact/commons-cli/commons-cli" }
+}
+
+dependencies {
+	implementation "com.github.knokko:vk-boiler:$boilerVersion"
+	implementation "commons-cli:commons-cli:1.8.0"
+	implementation platform("org.lwjgl:lwjgl-bom:$lwjglVersion")
+	implementation "org.lwjgl:lwjgl"
+	implementation "org.lwjgl:lwjgl-glfw"
+	implementation "org.lwjgl:lwjgl-stb"
+	implementation "org.lwjgl:lwjgl-vulkan"
+
+	for (natives in lwjglNatives) {
+		runtimeOnly "org.lwjgl:lwjgl::$natives"
+		runtimeOnly "org.lwjgl:lwjgl-glfw::$natives"
+		runtimeOnly "org.lwjgl:lwjgl-stb::$natives"
+		if (natives.contains("macos")) runtimeOnly "org.lwjgl:lwjgl-vulkan::$natives"
+	}
+
+	implementation project(":kim1")
+	implementation project(":kim2")
+	implementation project(":kim3")
+}
+
+shadowJar {
+	manifest {
+		attributes ("Main-Class": "com.github.knokko.compressor.PreviewerCli")
+		attributes ("Enable-Native-Access": "ALL-UNNAMED")
+		attributes ("Add-Exports": "java.base/jdk.internal.misc")
+	}
+}
+
+tasks.register("preview", JavaExec) {
+	description = "Runs the previewer: use e.g. ./gradlew preview --args=\"image16x16.bc1 --width 16 --gui\""
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = "com.github.knokko.compressor.PreviewerCli"
+}
+
+tasks.register("proguardPreviewer", ProGuardTask) {
+	dependsOn "shadowJar"
+	injars "build/libs/previewer-all.jar"
+	outjars "build/libs/previewer.jar"
+
+	// I need java.base, and LWJGL needs jdk.unsupported (Unsafe)
+	libraryjars "${System.getProperty("java.home")}/jmods/java.base.jmod"
+	libraryjars "${System.getProperty("java.home")}/jmods/jdk.unsupported.jmod"
+
+	// I just want to remove unused class:
+	// I do NOT want to obfuscate the program, since that will ruin stacktraces
+	dontobfuscate()
+	dontoptimize()
+
+	// Don't delete the main method
+	keep "class com.github.knokko.compressor.PreviewerCli {*;}"
+
+	// LWJGL system is magical, and will segfault if we remove its stuff
+	keep "class org.lwjgl.system.** {*;}"
+
+	// These suggestive annotations are not interesting
+	dontwarn "org.jspecify.annotations.**"
+
+	// This program doesn't use OpenXR (virtual reality)
+	dontwarn "com.github.knokko.boiler**.xr**"
+	dontwarn "com.github.knokko.boiler.exceptions.OpenXrFailureException"
+
+	// The CLI doesn't use SDL
+	dontwarn "org.lwjgl.sdl.**"
+
+	// We don't use VMA
+	dontwarn "org.lwjgl.util.vma.**"
+
+	// Some methods of MappedVkbBuffer/ImageCoding use java.awt.BufferedImage, but it's fine since I don't call them
+	dontwarn "com.github.knokko.boiler.buffers.MappedVkbBuffer"
+	dontwarn "com.github.knokko.boiler.utilities.ImageCoding"
+
+	// The previewer does not use BufferedImage or ImageIO
+	dontwarn "java.awt.image.BufferedImage"
+	dontwarn "java.awt.Color"
+	dontwarn "javax.imageio.ImageIO"
+
+	// The previewer does not use FrustumCuller
+	dontwarn "com.github.knokko.boiler.culling.FrustumCuller**"
+}
