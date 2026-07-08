@@ -63,12 +63,7 @@ public class TestBc1Compression {
 				float[] endpoint1 = parseColor(bytes, blockIndex);
 				float[] endpoint2 = parseColor(bytes, blockIndex + 2);
 
-				boolean swap = parseRaw(bytes, blockIndex) <= parseRaw(bytes, blockIndex + 2);
-				if (swap) {
-					var temp = endpoint2;
-					endpoint2 = endpoint1;
-					endpoint1 = temp;
-				}
+				boolean hasAlpha = parseRaw(bytes, blockIndex) <= parseRaw(bytes, blockIndex + 2);
 
 				for (int offsetX = 0; offsetX < 4; offsetX++) {
 					for (int offsetY = 0; offsetY < 4; offsetY++) {
@@ -77,12 +72,20 @@ public class TestBc1Compression {
 						int innerBitOffset = 2 * (offsetX + 4 * offsetY);
 						int byteValue = bytes[blockIndex + 4 + innerBitOffset / 8] & 0xFF;
 						int bits = (byteValue >> (innerBitOffset % 8)) & 3;
-						if (swap && bits == 3) {
+						if (hasAlpha && bits == 3) {
 							image.setRGB(imageX, imageY, 0);
 							continue;
 						}
-						if (swap) bits = 2 - bits;
-						float progress = swap ? bits / 2f : bits / 3f;
+
+						float progress;
+						if (hasAlpha) {
+							if (bits == 2) progress = 0.5f;
+							else progress = (float) bits;
+						} else {
+							if (bits == 2) progress = 0.33f;
+							else if (bits == 3) progress = 0.67f;
+							else progress = (float) bits;
+						}
 						float[] mixedEndpoint = {
 								progress * endpoint2[0] + (1f - progress) * endpoint1[0],
 								progress * endpoint2[1] + (1f - progress) * endpoint1[1],
@@ -153,9 +156,7 @@ public class TestBc1Compression {
 		}
 
 		var combiner = new MemoryCombiner(boiler, "CompressionMemory");
-		var stagingCombiner = new MemoryCombiner(boiler, "StagingMemory");
-		var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
-		var worker = new Bc1Worker(compressor, 0, combiner);
+		var compressor = new Bc1Compressor(boiler);
 
 		MappedVkbBuffer[] sourceBuffers = new MappedVkbBuffer[files.length];
 		MappedVkbBuffer[] destinationBuffers = new MappedVkbBuffer[files.length];
@@ -173,7 +174,6 @@ public class TestBc1Compression {
 		}
 
 		var memory = combiner.build(false);
-		var stagingMemory = stagingCombiner.build(false);
 
 		for (int index = 0; index < files.length; index++) {
 			sourceBuffers[index].encodeBufferedImage(sourceImages[index]);
@@ -187,8 +187,6 @@ public class TestBc1Compression {
 		assertTrue(destinationFolder.isDirectory() || destinationFolder.mkdirs());
 
 		var commands = new SingleTimeCommands(boiler);
-		commands.submit("StagingTransfer", compressor::performStagingTransfer).awaitCompletion();
-		stagingMemory.destroy(boiler);
 
 		for (int index = 0; index < files.length; index++) {
 			var image = sourceImages[index];
@@ -196,8 +194,8 @@ public class TestBc1Compression {
 			var destinationBuffer = destinationBuffers[index];
 			sourceBuffers[index].encodeBufferedImage(image);
 			commands.submit("Bc1Compression", recorder -> {
-				worker.bindPipeline(recorder);
-				worker.compress(
+				compressor.bindPipeline(recorder);
+				compressor.compress(
 						recorder, descriptorSet[0], sourceBuffer, destinationBuffer,
 						image.getWidth(), image.getHeight()
 				);

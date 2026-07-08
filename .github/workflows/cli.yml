@@ -188,7 +188,7 @@ jobs:
           java -jar previewer.jar EarthThickExact.kim2 --exact-kim-decompression
           java -jar previewer.jar AeropolitanScimitarExact.kim3 --exact-kim-decompression
         if: ${{ matrix.os == 'macos-latest' }}
-      - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc1.png dreamshrine.bc1.png 15.0
+      - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc1.png dreamshrine.bc1.png 1.0
       - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc4.png dreamshrine.bc4.png 5.0
       - run: java -jar ./test-helper-all.jar expected-dreamshrine.bc7.png dreamshrine.bc7.png 15.0
       - run: java -jar ./test-helper-all.jar AeropolitanScimitar.png AeropolitanScimitar.kim1.png 1.0

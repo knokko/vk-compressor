@@ -8,17 +8,18 @@ import com.github.knokko.boiler.commands.CommandRecorder;
 import com.github.knokko.boiler.commands.SingleTimeCommands;
 import com.github.knokko.boiler.descriptors.DescriptorCombiner;
 import com.github.knokko.boiler.descriptors.DescriptorSetLayoutBuilder;
+import com.github.knokko.boiler.descriptors.DescriptorUpdater;
 import com.github.knokko.boiler.descriptors.VkbDescriptorSetLayout;
 import com.github.knokko.boiler.memory.MemoryCombiner;
 import com.github.knokko.boiler.memory.callbacks.CallbackUserData;
 import com.github.knokko.boiler.synchronization.ResourceUsage;
 import com.github.knokko.boiler.utilities.ImageCoding;
+import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkPushConstantRange;
 
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.Objects;
+import java.nio.ByteOrder;
 import java.util.function.Consumer;
 
 import static com.github.knokko.boiler.utilities.BoilerMath.nextMultipleOf;
@@ -30,10 +31,8 @@ import static org.lwjgl.vulkan.VK10.*;
 
 /**
  * <p>
- *     This is a modified version of the BC1 compressor from
- *     <a href="https://github.com/darksylinc/betsy/blob/master/bin/Data/bc1.glsl">the Betsy GPU compressor</a>.
- *     I (knokko) modified it to make it compatible with Vulkan. Furthermore, I altered the algorithm to
- *     use the implicit 1-bit alpha channel.
+ *     This class manages a BC1 compressor that uses a Vulkan compute shader.
+ *     It supports the implicit 1-bit alpha channel.
  * </p>
  *
  * <ul>
@@ -74,8 +73,7 @@ public class Bc1Compressor {
 	) {
 		var combiner = new MemoryCombiner(boiler, "CompressorMemory");
 		var stagingCombiner = new MemoryCombiner(boiler, "Staging");
-		var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
-		var worker = new Bc1Worker(compressor, 0, combiner);
+		var compressor = new Bc1Compressor(boiler);
 
 		var descriptorCombiner = new DescriptorCombiner(boiler);
 		var descriptorSets = descriptorCombiner.addMultiple(compressor.descriptorSetLayout, imageData.length);
@@ -132,16 +130,15 @@ public class Bc1Compressor {
 
 		var commands = new SingleTimeCommands(boiler);
 		commands.submit("StagingTransfer", recorder -> {
-			compressor.performStagingTransfer(recorder);
 			recorder.bulkCopyBuffers(sourceTransferBuffers, sourceBuffers);
 			recorder.bulkBufferBarrier(ResourceUsage.TRANSFER_DEST, ResourceUsage.computeBuffer(VK_ACCESS_SHADER_READ_BIT), sourceBuffers);
 		}).awaitCompletion();
 		stagingMemory.destroy(boiler);
 
 		commands.submit("Bc1Compression", recorder -> {
-			worker.bindPipeline(recorder);
+			compressor.bindPipeline(recorder);
 			for (int index = 0; index < imageData.length; index++) {
-				worker.compress(
+				compressor.compress(
 						recorder, descriptorSets[index], sourceBuffers[index], destinationBuffers[index],
 						nextMultipleOf(widths[index], 4), nextMultipleOf(heights[index], 4)
 				);
@@ -260,69 +257,89 @@ public class Bc1Compressor {
 
 	final long pipelineLayout;
 	final long pipeline;
-	final VkbBuffer matchBuffer;
-	final MappedVkbBuffer stagingBuffer;
-	boolean didStagingTransfer = false;
+
+	private boolean calledBindPipeline = false;
 
 	/**
 	 * Constructs a new <i>Bc1Compressor</i> using the given <i>BoilerInstance</i>. You should normally only need 1
 	 * <i>Bc1Compressor</i> instance.
 	 */
-	public Bc1Compressor(BoilerInstance boiler, MemoryCombiner combiner, MemoryCombiner stagingCombiner) {
+	public Bc1Compressor(BoilerInstance boiler) {
 		this.boiler = boiler;
 		try (var stack = stackPush()) {
-			var builder = new DescriptorSetLayoutBuilder(stack, 3);
-			for (int index = 0; index < 3; index++) {
+			var builder = new DescriptorSetLayoutBuilder(stack, 2);
+			for (int index = 0; index < 2; index++) {
 				builder.set(index, index, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT);
 			}
 			this.descriptorSetLayout = builder.build(boiler, "Bc1CompressorDescriptorSetLayout");
 
 			var pushConstants = VkPushConstantRange.calloc(1, stack);
 			//noinspection resource
-			pushConstants.get(0).set(VK_SHADER_STAGE_COMPUTE_BIT, 0, 16);
+			pushConstants.get(0).set(VK_SHADER_STAGE_COMPUTE_BIT, 0, 12);
 			this.pipelineLayout = boiler.pipelines.createLayout(
 					pushConstants, "Bc1CompressorPipelineLayout",
 					descriptorSetLayout.vkDescriptorSetLayout
 			);
 
 			this.pipeline = boiler.pipelines.createComputePipeline(
-					pipelineLayout, "com/github/knokko/compressor/betsy-bc1.spv", "Bc1Compressor"
-			);
-
-			this.stagingBuffer = stagingCombiner.addMappedBuffer(
-					4096, 1, VK_BUFFER_USAGE_TRANSFER_SRC_BIT
-			);
-
-			long alignment = boiler.deviceProperties.limits().minStorageBufferOffsetAlignment();
-			this.matchBuffer = combiner.addBuffer(
-					4096, alignment,
-					VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 1f
+					pipelineLayout, "com/github/knokko/compressor/bc1.spv", "Bc1Compressor"
 			);
 		}
 	}
 
 	/**
-	 * You need to call this method once before the first call to {@link Bc1Worker#compress}.
-	 * @param recorder The {@link CommandRecorder} that will be passed to the first call to {@link Bc1Worker#compress},
-	 *                 or another command recorder that is <b>completed</b>
-	 *                 before the first call to {@link Bc1Worker#compress}.
+	 * Calls <i>vkCmdBindPipeline</i> to bind the bc1 compute pipeline.
+	 * You must call this before calling {@link #compress}.
 	 */
-	public void performStagingTransfer(CommandRecorder recorder) {
-		if (didStagingTransfer) return;
-		didStagingTransfer = true;
-		try {
-			var matchInput = Bc1Compressor.class.getResourceAsStream("match.bin");
-			stagingBuffer.byteBuffer().put(Objects.requireNonNull(matchInput).readAllBytes());
-			matchInput.close();
-		} catch (IOException shouldNotHappen) {
-			throw new Error(shouldNotHappen);
+	public void bindPipeline(CommandRecorder recorder) {
+		vkCmdBindPipeline(recorder.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+		calledBindPipeline = true;
+	}
+
+	/**
+	 * Records commands to compress the RGBA data (1 byte per component) from the <i>source</i> buffer, and store the
+	 * compressed data in <i>destination</i>. The {@link VkbBuffer#offset} of all buffers must be a
+	 * multiple of {@link org.lwjgl.vulkan.VkPhysicalDeviceLimits#minStorageBufferOffsetAlignment}
+	 * @param recorder The command recorder onto which the compute command will be recorded
+	 * @param descriptorSet The descriptor set. It must have the <i>descriptorSetLayout</i> of the <i>Bc1Compressor</i>.
+	 *                      This method will call <i>vkUpdateDescriptorSets</i>, so you can't reuse it until the
+	 *                      recorded commands have completed execution.
+	 * @param source The source buffer containing the RGBA8 image data
+	 * @param destination The destination buffer to which the resulting BC1 image data will be written.
+	 * @param width The width of the image, in pixels
+	 * @param height The height of the image, in pixels
+	 */
+	public void compress(
+			CommandRecorder recorder, long descriptorSet, VkbBuffer source,
+			VkbBuffer destination, int width, int height
+	) {
+		if (width % 4 != 0 || height % 4 != 0) {
+			throw new IllegalArgumentException("Width (" + width + ") and height (" + height + ") must be a multiple of 4");
+		}
+		if (4L * width * height > source.size) throw new IllegalArgumentException("Source buffer is too small");
+		if ((long) width * height / 2 > destination.size) throw new IllegalArgumentException("Destination buffer is too small");
+		if (!calledBindPipeline) throw new IllegalStateException("You need to call this.bindPipeline() first");
+
+		try (MemoryStack stack = stackPush()) {
+			var updater = new DescriptorUpdater(stack, 2);
+			updater.writeStorageBuffer(0, descriptorSet, 0, source);
+			updater.writeStorageBuffer(1, descriptorSet, 1, destination);
+			updater.update(boiler);
+
+			recorder.bindComputeDescriptors(pipelineLayout, descriptorSet);
+			int bigEndian = ByteOrder.nativeOrder() == ByteOrder.BIG_ENDIAN ? VK_TRUE : VK_FALSE;
+			vkCmdPushConstants(
+					recorder.commandBuffer, pipelineLayout,
+					VK_SHADER_STAGE_COMPUTE_BIT, 0, stack.ints(bigEndian, width, height)
+			);
 		}
 
-		recorder.copyBuffer(stagingBuffer, matchBuffer);
-		recorder.bufferBarrier(
-				matchBuffer, ResourceUsage.TRANSFER_DEST,
-				ResourceUsage.computeBuffer(VK_ACCESS_SHADER_READ_BIT)
-		);
+		int numBlocksX = width / 4;
+		int numBlocksY = height / 4;
+		int groupSize = 8;
+		int numGroupsX = nextMultipleOf(numBlocksX, groupSize) / groupSize;
+		int numGroupsY = nextMultipleOf(numBlocksY, groupSize) / groupSize;
+		vkCmdDispatch(recorder.commandBuffer, numGroupsX, numGroupsY, 1);
 	}
 
 	/**

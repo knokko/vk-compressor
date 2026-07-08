@@ -1,0 +1,289 @@
+#version 430 core
+
+#define ALPHA_THRESHOLD 130
+
+layout(push_constant) uniform Refinements {
+	bool bigEndian;
+	uint width;
+	uint height;
+};
+
+layout(binding = 0) readonly restrict buffer SourceBuffer {
+	uint sourceBuffer[];
+};
+layout(binding = 1) writeonly restrict buffer DestBuffer {
+	uint destBuffer[];
+};
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#include "../../../../../../../../reverse-bytes.glsl"
+
+uint extractRed(uint rgba) {
+	return rgba & 255;
+}
+
+uint extractGreen(uint rgba) {
+	return (rgba >> 8) & 255;
+}
+
+uint extractBlue(uint rgba) {
+	return (rgba >> 16) & 255;
+}
+
+uint extractAlpha(uint rgba) {
+	return rgba >> 24;
+}
+
+uint encodeTo565(uint rgba) {
+	uint rawRed = extractRed(rgba) >> 3;
+	uint rawGreen = extractGreen(rgba) >> 2;
+	uint rawBlue = extractBlue(rgba) >> 3;
+
+	return rawBlue | (rawGreen << 5) | (rawRed << 11);
+}
+
+int distanceFunction(uint colorA, uint colorB) {
+	int redDiff = int(extractRed(colorA)) - int(extractRed(colorB));
+	int greenDiff = int(extractGreen(colorA)) - int(extractGreen(colorB));
+	int blueDiff = int(extractBlue(colorA)) - int(extractBlue(colorB));
+	//return redDiff * redDiff + greenDiff * greenDiff + blueDiff * blueDiff;
+	return abs(redDiff) + abs(greenDiff) + abs(blueDiff);
+}
+
+uint interpolateColors(uint color0, uint color1, uint numerator1, uint denominator) {
+	uint numerator0 = denominator - numerator1;
+	uint red = (numerator0 * extractRed(color0) + numerator1 * extractRed(color1)) / denominator;
+	uint green = (numerator0 * extractGreen(color0) + numerator1 * extractGreen(color1)) / denominator;
+	uint blue = (numerator0 * extractBlue(color0) + numerator1 * extractBlue(color1)) / denominator;
+	return red | (green << 8) | (blue << 16) | (255 << 24);
+}
+
+void storeResult(uint color0, uint color1, uint mask) {
+	uvec2 outputBlockCoordinates = gl_GlobalInvocationID.xy;
+	uint outputBlocksPerRow = width / 4;
+	uint outputBlockSize = 8 / 4; // 8 bytes per block and 1 uint is 4 bytes
+	uint outputIndex = outputBlockSize * (outputBlockCoordinates.x + outputBlocksPerRow * outputBlockCoordinates.y);
+
+	uint rawEndpoints = encodeTo565(color0) | (encodeTo565(color1) << 16);
+	if (bigEndian) {
+		rawEndpoints = revertBytes(rawEndpoints);
+		mask = revertBytes(mask);
+	}
+	destBuffer[outputIndex] = rawEndpoints;
+	destBuffer[outputIndex + 1] = mask;
+}
+
+int computeDistanceForOptimalMask(uint color0, uint color1, bool hasAlpha, uint sourcePixels[16], int distanceBound) {
+	uint oneThirdColor = interpolateColors(color0, color1, 1, 3);
+	uint midColor = interpolateColors(color0, color1, 1, 2);
+	uint twoThirdColor = interpolateColors(color0, color1, 2, 3);
+
+	int totalDistance = 0;
+	for (int i = 0; i < 16; i++) {
+		uint localColor = sourcePixels[i];
+
+		if (hasAlpha) {
+			if (extractAlpha(localColor) >= ALPHA_THRESHOLD) {
+				int distance0 = distanceFunction(localColor, color0);
+				int distance1 = distanceFunction(localColor, color1);
+				int midDistance = distanceFunction(localColor, midColor);
+				totalDistance += min(midDistance, min(distance0, distance1));
+			}
+		} else {
+			int distance0 = distanceFunction(localColor, color0);
+			int distance1 = distanceFunction(localColor, color1);
+			int oneThirdDistance = distanceFunction(localColor, oneThirdColor);
+			int twoThirdDistance = distanceFunction(localColor, twoThirdColor);
+			totalDistance += min(min(distance0, distance1), min(oneThirdDistance, twoThirdDistance));
+		}
+
+		if (totalDistance >= distanceBound) break;
+	}
+
+	return totalDistance;
+}
+
+uint computeOptimalMask(uint color0, uint color1, bool hasAlpha, uint sourcePixels[16]) {
+	bool onlyOneColor = encodeTo565(color0) == encodeTo565(color1);
+
+	uint oneThirdColor = interpolateColors(color0, color1, 1, 3);
+	uint midColor = interpolateColors(color0, color1, 1, 2);
+	uint twoThirdColor = interpolateColors(color0, color1, 2, 3);
+
+	uint mask = 0;
+	for (int i = 0; i < 16; i++) {
+		uint localColor = sourcePixels[i];
+		uint localMask = 0;
+
+		if (hasAlpha) {
+			// With alpha:
+			// localMask = 0 -> color0
+			// localMask = 1 -> color1
+			// localMask = 2 -> 50% color0 + 50% color1
+			// localMask = 3 -> transparent
+
+			if (extractAlpha(localColor) < ALPHA_THRESHOLD) {
+				localMask = 3;
+			} else {
+				int distance0 = distanceFunction(localColor, color0);
+				int distance1 = distanceFunction(localColor, color1);
+				int midDistance = distanceFunction(localColor, midColor);
+				int minDistance = min(midDistance, min(distance0, distance1));
+
+				if (distance0 == minDistance) localMask = 0;
+				if (distance1 == minDistance) localMask = 1;
+				if (midDistance == minDistance) localMask = 2;
+			}
+		} else {
+			// Without alpha:
+			// localMask = 0 -> color0
+			// localMask = 1 -> color1
+			// localMask = 2 -> 67% color0 + 33% color1
+			// localMask = 3 -> 33% color0 + 67% color1
+
+			int distance0 = distanceFunction(localColor, color0);
+			int distance1 = distanceFunction(localColor, color1);
+			int oneThirdDistance = distanceFunction(localColor, oneThirdColor);
+			int twoThirdDistance = distanceFunction(localColor, twoThirdColor);
+			int minDistance = min(min(distance0, distance1), min(oneThirdDistance, twoThirdDistance));
+
+			if (distance0 == minDistance) localMask = 0;
+			if (distance1 == minDistance) localMask = 1;
+			if (oneThirdDistance == minDistance) localMask = 2;
+
+			// When color0 == color1, alpha mode will be activated (since color0 <= color1),
+			// so picking mask 3 would make the pixel transparent, which we don't want!
+			if (twoThirdDistance == minDistance && !onlyOneColor) localMask = 3;
+		}
+
+		int bitIndex = 2 * i;
+		mask |= localMask << bitIndex;
+	}
+
+	return mask;
+}
+
+uint colorComponentAdd(uint original, int adder) {
+	int raw = int(original) + adder;
+	return uint(clamp(raw, 0, 255));
+}
+
+uint colorAdd(uint original, ivec3 adder) {
+	uint red = colorComponentAdd(extractRed(original), adder.r);
+	uint green = colorComponentAdd(extractGreen(original), adder.g);
+	uint blue = colorComponentAdd(extractBlue(original), adder.b);
+	return red | (green << 8) | (blue << 16) | (255 << 24);
+}
+
+void optimizeColorComponentIteration(
+		inout uint currentColor, inout int currentDistance, uint color1,
+		ivec3 stepVector, bool hasAlpha, uint sourcePixels[16]
+) {
+	uint increasedComponentColor = colorAdd(currentColor, stepVector);
+	int increasedComponentDistance = computeDistanceForOptimalMask(increasedComponentColor, color1, hasAlpha, sourcePixels, currentDistance);
+	if (increasedComponentDistance < currentDistance) {
+		currentColor = increasedComponentColor;
+		currentDistance = increasedComponentDistance;
+	} else {
+		uint decreasedComponentColor = colorAdd(currentColor, -stepVector);
+		int decreasedComponentDistance = computeDistanceForOptimalMask(decreasedComponentColor, color1, hasAlpha, sourcePixels, currentDistance);
+		if (decreasedComponentDistance < currentDistance) {
+			currentColor = decreasedComponentColor;
+			currentDistance = decreasedComponentDistance;
+		}
+	}
+}
+
+uint optimizeColor0Iteration(uint color0, uint color1, bool hasAlpha, uint sourcePixels[16], int stepSize, inout int currentDistance) {
+	uint currentColor = color0;
+
+	optimizeColorComponentIteration(currentColor, currentDistance, color1, ivec3(stepSize, 0, 0), hasAlpha, sourcePixels);
+	optimizeColorComponentIteration(currentColor, currentDistance, color1, ivec3(0, stepSize, 0), hasAlpha, sourcePixels);
+	optimizeColorComponentIteration(currentColor, currentDistance, color1, ivec3(0, 0, stepSize), hasAlpha, sourcePixels);
+
+	return currentColor;
+}
+
+void optimizeColors(
+		inout uint color0, inout uint color1, inout int smallestDistance,
+		int stepSize, bool hasAlpha, uint sourcePixels[16]
+) {
+	while (true) {
+		uint oldColor0 = color0;
+		uint oldColor1 = color1;
+		color0 = optimizeColor0Iteration(color0, color1, hasAlpha, sourcePixels, stepSize, smallestDistance);
+		color1 = optimizeColor0Iteration(color1, color0, hasAlpha, sourcePixels, stepSize, smallestDistance);
+		if (oldColor0 == color0 && oldColor1 == color1) return;
+	}
+}
+
+void chooseColors(uint sourcePixels[16], inout uint color0, inout uint color1, inout bool hasAlpha) {
+	int smallestDistance = 1 << 30;
+
+	// Ignore transparent and duplicate colors
+	uint ignoreMask = 0;
+	for (int i = 0; i < 16; i++) {
+		uint colorI = sourcePixels[i];
+		if (extractAlpha(colorI) < ALPHA_THRESHOLD) {
+			hasAlpha = true;
+			ignoreMask |= 1u << i;
+		}
+		for (int j = 0; j < i; j++) {
+			if (colorI == sourcePixels[j]) ignoreMask |= 1u << i;
+		}
+	}
+
+	for (int i = 0; i < 16; i++) {
+		if ((ignoreMask & (1u << i)) != 0u) continue;
+
+		uint colorI = sourcePixels[i];
+		for (int j = 0; j <= i; j++) {
+			if ((ignoreMask & (1u << j)) != 0u) continue;
+
+			uint colorJ = sourcePixels[j];
+			int predictedDistance = computeDistanceForOptimalMask(colorI, colorJ, hasAlpha, sourcePixels, smallestDistance);
+			if (predictedDistance < smallestDistance) {
+				smallestDistance = predictedDistance;
+				color0 = colorI;
+				color1 = colorJ;
+			}
+		}
+	}
+
+	optimizeColors(color0, color1, smallestDistance, 50, hasAlpha, sourcePixels);
+	optimizeColors(color0, color1, smallestDistance, 10, hasAlpha, sourcePixels);
+
+	bool wouldActivateAlphaMode = encodeTo565(color0) <= encodeTo565(color1);
+	if (hasAlpha != wouldActivateAlphaMode) {
+		uint oldColor0 = color0;
+		color0 = color1;
+		color1 = oldColor0;
+	}
+}
+
+void main() {
+	uint sourcePixels[16];
+
+	uint blockX = gl_GlobalInvocationID.x;
+	uint blockY = gl_GlobalInvocationID.y;
+
+	uint numBlocksX = width / 4;
+	uint numBlocksY = height / 4;
+	if (blockX >= numBlocksX || blockY >= numBlocksY) return;
+
+	const uvec2 basePixelCoordinates = 4 * uvec2(blockX, blockY);
+	for (int i = 0; i < 16; i++) {
+		const uvec2 pixelCoordinates = basePixelCoordinates + uvec2(i % 4, i / 4);
+		sourcePixels[i] = sourceBuffer[pixelCoordinates.x + width * pixelCoordinates.y];
+	}
+
+	uint color0 = 0;
+	uint color1 = -1;
+	bool hasAlpha = false;
+	chooseColors(sourcePixels, color0, color1, hasAlpha);
+
+	uint mask = computeOptimalMask(color0, color1, hasAlpha, sourcePixels);
+
+	storeResult(color0, color1, mask);
+}

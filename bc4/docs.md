@@ -27,7 +27,7 @@ or
 (Assuming that the size of the original image was 123x123 pixels.)
 
 ## Simple API usage
-The static methods of `Bc1Compressor` are the easy way to use the API. For instance:
+The static methods of `Bc4Compressor` are the easy way to use the API. For instance:
 
 ```java
 import java.awt.*;
@@ -62,21 +62,19 @@ class SimpleApiUsage {
 ```
 
 ## Complex API usage
-The complex API usage is much more complicated to use than the simple API usage, but it can be orders of magnitude
-faster, if you are working with data that is already in video memory.
+The complex API usage is much more complicated to use than the simple API usage,
+but it can be orders of magnitude faster, if you are working with data that is already in video memory.
 
 To use the BC4 compressor, create the `BoilerInstance`.
 Then, create an instance of `Bc4Compressor`:
 ```java
 var compressor = new Bc4Compressor(boiler);
 ```
-You only need 1 instance of `Bc4Compressor`
-(per `BoilerInstance`).
+You only need 1 instance of `Bc4Compressor` (per `BoilerInstance`).
 
 ### Descriptor sets
-Before you start, you need to allocate 1
-or more descriptor sets of the Bc4 layout. You can access
-the layout using `compressor.descriptorSetLayout`.
+Before you start, you need to allocate 1 or more descriptor sets of the Bc4 layout.
+You can access the layout using `compressor.descriptorSetLayout`.
 ```java
 var descriptorCombiner = new DescriptorCombiner(boiler);
 long[] descriptorSets = descriptorCombiner.addMultiple(compressor.descriptorSetLayout, 1);
@@ -86,43 +84,35 @@ long descriptorSet = descriptorSets[0];
 ```
 
 ### The actual compression
-1. You need to create some command pool + command buffer yourself
-   (e.g. using `SingleTimeCommands.submit`), and let a `CommandRecorder`
-   start recording.
-2. Call `compressor.bindPipeline(recorder)` to bind the bc4
-   compression compute pipeline.
+1. You need to create some command pool + command buffer yourself (e.g. using `SingleTimeCommands.submit`),
+   and let a `CommandRecorder` start recording.
+2. Call `compressor.bindPipeline(recorder)` to bind the bc4 compression compute pipeline.
 3. Call `compressor.compress(...)` for each bc4 buffer that you want to compress.
 
 #### Compression parameters
 ##### recorder
 This is the same `CommandRecorder` that you passed to `bindPipeline`.
-You can use e.g. `SingleTimeCommands.submit` to obtain a
-`CommandRecorder` instance.
+You can use e.g. `SingleTimeCommands.submit` to obtain a `CommandRecorder` instance.
 
 ##### descriptorSet
-This must be a `VkDescriptorSet` whose layout is
-`compressor.descriptorSetLayout`.
-Since the `compress(...)` method will call
-`vkUpdateDescriptorSets`, **you can't reuse the descriptor
-set until the command buffer has completed execution**.
-If you want to compress N buffers/images during the
-same submission, you need N descriptor sets.
+This must be a `VkDescriptorSet` whose layout is `compressor.descriptorSetLayout`.
+Since the `compress(...)` method will call `vkUpdateDescriptorSets`,
+**you can't reuse the descriptor set until the command buffer has completed execution**.
+If you want to compress N buffers/images during the same submission, you need N descriptor sets.
 
 ##### source
-This buffer must contain the data of the image to be compressed,
-in a grayscale format with 1 byte per component. Thus, the
-byte size of the buffer should be `width * height`.
+This buffer must contain the data of the image to be compressed, in a grayscale format with 1 byte per component.
+Thus, the byte size of the buffer should be `width * height`.
 
 ##### destination
-Once the command buffer has completed execution,
-the encoded image data will be stored in this buffer.
+Once the command buffer has completed execution, the encoded image data will be stored in this buffer.
 The byte size should be `width * height / 2`.
 
 ##### width
-The width of the image, in pixels
+The width of the image, in pixels, which must be a multiple of 4.
 
 ##### height
-The height of the image, in pixels
+The height of the image, in pixels, which must be a multiple of 4.
 
 ##### signed
 Whether the grayscale image data is *signed*:
@@ -130,12 +120,9 @@ Whether the grayscale image data is *signed*:
 - This should be `false` when the image format is `VK_FORMAT_BC4_UNORM_BLOCK`
 
 ### Synchronization
-The `compress` method won't perform any synchronization on
-the source buffer and destination buffer. It's your
-own responsibility to handle potential memory barriers and
-layout transitions. Furthermore, the `compress` method
-won't submit or *end* the command buffer/recorder, so
-that's also up to you.
+The `compress` method won't perform any synchronization on the source buffer and destination buffer.
+It's your own responsibility to handle potential memory barriers and layout transitions.
+Furthermore, the `compress` method won't submit or *end* the command buffer/recorder, so that's also up to you.
 
 ### Cleaning up
 If you are done with all compression, call the

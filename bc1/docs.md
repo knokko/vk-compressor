@@ -1,8 +1,6 @@
 # Using the BC1 compressor
 The BC1 image format is a standardized GPU-compressed image format supported by almost any *desktop* GPU.
-`vk-compressor` uses a modified version of
-[the Betsy bc1 compressor](https://github.com/darksylinc/betsy/blob/master/bin/Data/bc1.glsl)
-that supports the 1-bit alpha channel.
+`vk-compressor` uses a compute shader to compress images to BC1. and supports the implicit 1-bit alpha channel.
 
 ## CLI usage
 To compressor `some-image.png`, and store the compressed data in `some-image.bc1`, use the following command:
@@ -39,50 +37,9 @@ faster, if you are working with data that is already in video memory.
 To use the BC1 compressor, create the `BoilerInstance`.
 Then, create an instance of `Bc1Compressor`:
 ```java
-var compressor = new Bc1Compressor(boilerInstance, memoryCombiner, stagingCombiner);
+var compressor = new Bc1Compressor(boilerInstance);
 ```
-
-The `Bc1Compressor` needs to allocate some device memory, so it takes two `MemoryCombiner`s as parameters. If you don't
-want it to share its memory with anything else, you could simply use:
-```java
-var combiner = new MemoryCombiner(boiler, "CompressorMemory");
-var stagingCombiner = new MemoryCombiner(boiler, "CompressorStagingMemory");
-var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
-var memory = combiner.build(true);
-var stagingMemory = stagingCombiner.build(true);
-
-var commands = new SingleTimeCommands(boiler);
-commands.submit("StagingTransfer", compressor::performStagingTransfer).awaitCompletion();
-stagingMemory.destroy(boiler);
-
-// Now you can use `compressor`
-```
-You only need 1 instance of `Bc1Compressor`
-(per `BoilerInstance`). Next, create 1 or more workers:
-```java
-var worker = new Bc1Worker(compressor, maxDestinationImagePixels, combiner);
-```
-If you want to put the compressed image data in a `VkImage`, you need to pick
-`maxDestinationImagePixels >= image.width * image.height` for any of your destination images.
-If you want to put the compressed image data in a `VkBuffer`, you can use `0`.
-The `combiner` is probably the same one that you use for the `Bc1Compressor`, but that is not required.
-Example code:
-```java
-var combiner = new MemoryCombiner(boiler, "CompressorMemory");
-var stagingCombiner = new MemoryCombiner(boiler, "CompressorStagingMemory");
-var compressor = new Bc1Compressor(boiler, combiner, stagingCombiner);
-var worker = new Bc1Worker(compressor, 0, combiner);
-var memory = combiner.build(true);
-var stagingMemory = stagingCombiner.build(true);
-
-var commands = new SingleTimeCommands(boiler);
-commands.submit("StagingTransfer", compressor::performStagingTransfer).awaitCompletion();
-stagingMemory.destroy(boiler);
-
-// Now you can use `worker`
-```
-You usually need just 1 instance of `Bc1Worker`, but
-having more of them allows you to do parallel recording.
+You only need 1 instance of `Bc1Compressor` (per `BoilerInstance`).
 
 ### Descriptor sets
 Before you start, you need to allocate 1
@@ -96,64 +53,45 @@ var descriptorPool = descriptorCombiner.build("CompressionDescriptors");
 long descriptorSet = descriptorSets[0];
 ```
 Finally, you need to call one of the `compress` methods of
-your `Bc1Worker` to record commands that will actually
+your `Bc1Compressor` to record commands that will actually
 compress an image.
 
 ### The actual compression
-Before you can call any of the `compress(...)` methods,
-you need to call the `bindPipeline(recorder)` method of the worker.
-(An exception will be thrown if you forget this.)
+1. You need to create some command pool + command buffer yourself (e.g. using `SingleTimeCommands.submit`),
+   and let a `CommandRecorder` start recording.
+2. Call `compressor.bindPipeline(recorder)` to bind the bc1 compression compute pipeline.
+3. Call `compressor.compress(...)` for each bc1 buffer that you want to compress.
 
-Depending on the overload you choose,
-the result will either be stored in a buffer, or in an
-image.
-- To store the result in a buffer, call the
-  `compress(recorder, descriptorSet, sourceBuffer, destinationBuffer, width, height)`
-  overload.
-- To store the result in an image, call the
-  `compress(recorder, descriptorSet, sourceBuffer, destinationImage)`
-  overload.
+#### Compression parameters
+##### recorder
+This is the same `CommandRecorder` that you passed to `bindPipeline`.
+You can use e.g. `SingleTimeCommands.submit` to obtain a `CommandRecorder` instance.
 
-In either case, you need to create some command pool +
-command buffer yourself
-(e.g. using `SingleTimeCommands.submit`),
-and let a `CommandRecorder`
-start recording, which is the first parameter you need to
-pass.
+##### descriptorSet
+This must be a `VkDescriptorSet` whose layout is `compressor.descriptorSetLayout`.
+Since the `compress(...)` method will call `vkUpdateDescriptorSets`,
+**you can't reuse the descriptor set until the command buffer has completed execution**.
+If you want to compress N buffers/images during the same submission, you need N descriptor sets.
 
-Furthermore, you need your descriptor set as the second
-parameter. Since the `compress(...)` method will call
-`vkUpdateDescriptorSets`, you can't reuse the descriptor
-set until the command buffer has completed execution.
+##### source
+This buffer must contain the data of the image to be compressed, in an RGBA format with 1 byte per component,
+which is 4 bytes per pixel.
+Thus, the byte size of the buffer should be `4 * width * height`.
 
-The `sourceBuffer` is the third parameter. This buffer
-must contain the data of the image to be compressed,
-in an RGBA format with 1 byte per component. Thus, the
-byte size of the should be `4 * width * height`.
+##### destination
+Once the command buffer has completed execution, the encoded image data will be stored in this buffer.
+The byte size should be `width * height / 2`.
 
-In the first overload, the `destinationBuffer` is
-the fourth parameter. Once the command buffer has completed
-execution, the encoded image data will be stored in this
-buffer. The byte size should be `width * height / 2`.
-The `width` and `height` parameters are simply the width
-and height of the image to be compressed, in pixels.
+##### width
+The width of the image, in pixels, which must be a multiple of 4.
 
-In the second overload, the `destinationImage` is the
-fourth and last parameter. Once the command buffer has
-completed execution, the compressed data will have been
-copied to the image. The image must have the layout
-`VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL`. Assuming that
-the source image data uses SRGB, the image format should
-be `VK_FORMAT_BC1_RGBA_SRGB_BLOCK`.
+##### height
+The height of the image, in pixels, which must be a multiple of 4.
 
 ### Synchronization
-The `compress` method won't perform any synchronization on
-the source buffer and destination image/buffer. It's your
-own responsibility to handle potential memory barriers and
-layout transitions. Furthermore, the `compress` method
-won't submit or *end* the command buffer/recorder, so
-that's also up to you.
+The `compress` method won't perform any synchronization on the source buffer and destination buffer.
+It's your own responsibility to handle potential memory barriers and layout transitions.
+Furthermore, the `compress` method won't submit or *end* the command buffer/recorder, so that's also up to you.
 
 ### Cleaning up
-If you are done with all compression, call the
-`destroy()` method of the `Bc1Compressor`.
+If you are done with all compression, call the `destroy()` method of the `Bc1Compressor`.

@@ -39,7 +39,7 @@ for (publishProject in [":bc1", ":bc4", ":bc7", ":kim1", ":kim2", ":kim3"]) {
 			publications {
 				mavenJava(MavenPublication) {
 					groupId = "com.github.knokko.vk-compressor"
-					version = "1.0.0-pre2"
+					version = "1.0.0-rc2"
 					from components.java
 				}
 			}

@@ -91,13 +91,12 @@ The BC compression results are:
 Note that the BC1 and BC4 compressor run on the GPU. Most of the 'processing time' is spent on transferring the pixels
 from the CPU to the GPU, and on transferring the compressed data from the GPU to the CPU.
 The time spent during the compute shader itself is negligible.
-From my rough measurements, the compute speed appears to be ~50 *million* pixels per *milli*second for BC1,
-and ~300 *million* pixels per *milli*second for BC4. (Roughly 250 GB per second in most cases.)
+From my rough measurements:
+- The BC1 shader speed seems to be ~1 *million* pixels per *milli*second
+- The BC4 shader speed seems to be ~50 *million* pixels per *milli*second
+
 Unfortunately, this speed can only be achieved by using the API rather than the CLI,
 and requires both the input and output to already be on the GPU.
-Even if the whole GPU memory would be filled with input images and output space,
-compressing all of it would take much less than a second.
-The only real limit for BC1 and BC4 is the number of images that you can send to the GPU (or generate on the GPU).
 
 ##### KIM compression performance
 Since the KIM image format only supports images with specific limits, I used a different (much smaller) test set.
