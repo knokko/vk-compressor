@@ -75,7 +75,7 @@ allprojects {
 		}
 	}
 
-	project.ext.lwjglVersion = "3.4.2-SNAPSHOT"
+	project.ext.lwjglVersion = "3.4.2"
 	project.ext.boilerVersion = "5.5.0"
 	project.ext.lwjglNatives = [
 			"natives-linux", "natives-linux-arm32", "natives-linux-arm64",
