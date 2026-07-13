@@ -194,7 +194,7 @@ dependencies {
 This library requires [LWJGL](https://www.lwjgl.org) to be available at runtime,
 but it does *not* bundle LWJGL (so that *you* can choose the LWJGL version).
 All compressors require the 'core' of LWJGL, and the BC1 and BC4 compressors also require `lwjgl-vulkan`.
-This library also bundles [vk-boiler 5.4](https://github.com/knokko/vk-boiler).
+This library also bundles [vk-boiler 5.5](https://github.com/knokko/vk-boiler).
 
 #### Using the API
 Each of the compressor has its own docs, which tell you how to use it:
